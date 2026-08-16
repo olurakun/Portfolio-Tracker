@@ -18,6 +18,13 @@ export default function Home() {
   const [txType, setTxType] = useState("buy");
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
+  const [txDate, setTxDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  // Dönem (tarih aralığı) K/Z state'leri
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [rangeResult, setRangeResult] = useState<number | null>(null);
+  const [rangeLoading, setRangeLoading] = useState(false);
 
   // Varlık arama state'leri
   const [searchQuery, setSearchQuery] = useState("");
@@ -56,6 +63,7 @@ export default function Home() {
     const { data: txData } = await supabase
       .from("transactions")
       .select("*")
+      .order("date", { ascending: true })
       .order("created_at", { ascending: true });
     if (assetsData) {
         setAssets(assetsData);
@@ -85,8 +93,63 @@ export default function Home() {
         return;
       }
     }
-    await supabase.from("transactions").insert([{ asset_id: selectedAssetId, type: txType, quantity: Number(quantity), price: Number(price) }]);
-    setQuantity(""); setPrice(""); fetchData();
+    await supabase.from("transactions").insert([{ asset_id: selectedAssetId, type: txType, quantity: Number(quantity), price: Number(price), date: txDate }]);
+    setQuantity(""); setPrice(""); setTxDate(new Date().toISOString().slice(0, 10)); fetchData();
+  };
+
+  // Belirli bir tarih aralığındaki portföy değer değişimini hesaplar:
+  // (bitiş tarihindeki elde tutulan miktarın bitiş fiyatı) - (başlangıçtaki miktarın başlangıç fiyatı)
+  // - dönem içi alımlar + dönem içi satımlar. Böylece hem anlık değer değişimi hem de
+  // dönem içindeki alım/satım nakit akışları tek bir K/Z rakamında birleşiyor.
+  const calculateRangePL = async () => {
+    if (!rangeStart || !rangeEnd) { alert("Başlangıç ve bitiş tarihi seçmelisin."); return; }
+    setRangeLoading(true);
+    const today = new Date().toISOString().slice(0, 10);
+    let total = 0;
+
+    for (const asset of assets) {
+      const assetTx = transactions.filter(tx => tx.asset_id === asset.id);
+      let qtyBeforeStart = 0, qtyAtEnd = 0, buysInRange = 0, sellsInRange = 0;
+
+      for (const tx of assetTx) {
+        const qty = Number(tx.quantity);
+        const txPrice = Number(tx.price);
+        const signedQty = tx.type === 'buy' ? qty : -qty;
+        if (tx.date < rangeStart) qtyBeforeStart += signedQty;
+        if (tx.date <= rangeEnd) qtyAtEnd += signedQty;
+        if (tx.date >= rangeStart && tx.date <= rangeEnd) {
+          if (tx.type === 'buy') buysInRange += qty * txPrice;
+          else sellsInRange += qty * txPrice;
+        }
+      }
+
+      let priceStart = 0;
+      if (qtyBeforeStart !== 0) {
+        try {
+          const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&date=${rangeStart}`);
+          const data = await res.json();
+          priceStart = data.price || 0;
+        } catch { priceStart = 0; }
+      }
+
+      let priceEnd = 0;
+      if (qtyAtEnd !== 0) {
+        if (rangeEnd >= today) {
+          priceEnd = currentPrices[asset.id] || 0;
+        } else {
+          try {
+            const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&date=${rangeEnd}`);
+            const data = await res.json();
+            priceEnd = data.price || 0;
+          } catch { priceEnd = 0; }
+        }
+      }
+
+      total += (qtyAtEnd * priceEnd - qtyBeforeStart * priceStart) - buysInRange + sellsInRange;
+    }
+
+    setRangeResult(total);
+    setRangeLoading(false);
   };
 
   const fetchPrices = async () => {
@@ -156,6 +219,25 @@ export default function Home() {
             </div>
           </div>
         </header>
+
+        <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-8 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Başlangıç</label>
+            <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="p-2 rounded bg-gray-700 border border-gray-600" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Bitiş</label>
+            <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="p-2 rounded bg-gray-700 border border-gray-600" />
+          </div>
+          <button onClick={calculateRangePL} className="bg-purple-600 px-4 py-2 rounded font-bold hover:bg-purple-700">
+            {rangeLoading ? "Hesaplanıyor..." : "Dönem K/Z Hesapla"}
+          </button>
+          {rangeResult !== null && !rangeLoading && (
+            <div className={`ml-auto text-lg font-bold ${rangeResult >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {rangeStart} → {rangeEnd}: {rangeResult.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
+            </div>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
           <div className="xl:col-span-1 space-y-6">
@@ -232,6 +314,7 @@ export default function Home() {
                 </div>
                 <input type="number" placeholder="Adet" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
                 <input type="number" placeholder="Fiyat" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+                <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
                 <button type="submit" className="w-full bg-green-600 py-2 rounded font-bold">Kaydet</button>
              </form>
           </div>
