@@ -7,6 +7,7 @@ export default function Home() {
   const [assets, setAssets] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
+  const [currentPricesUSD, setCurrentPricesUSD] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
 
   // Form State'leri
@@ -91,14 +92,17 @@ export default function Home() {
   const fetchPrices = async () => {
     setLoading(true);
     const newPrices: Record<string, number> = {};
+    const newPricesUSD: Record<string, number> = {};
     for (const asset of assets) {
       try {
         const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&_=${Date.now()}`);
         const data = await res.json();
         newPrices[asset.id] = data.price || 0;
-      } catch { newPrices[asset.id] = 0; }
+        newPricesUSD[asset.id] = data.priceUSD || 0;
+      } catch { newPrices[asset.id] = 0; newPricesUSD[asset.id] = 0; }
     }
     setCurrentPrices(newPrices);
+    setCurrentPricesUSD(newPricesUSD);
     setLoading(false);
   };
 
@@ -125,11 +129,13 @@ export default function Home() {
     });
     const avgCost = totalQty > 0 ? (totalCost / totalQty) : 0;
     const currentPrice = currentPrices[asset.id] || 0;
+    const currentPriceUSD = currentPricesUSD[asset.id] || 0;
     const unrealizedPL = (totalQty * currentPrice) - totalCost;
-    return { ...asset, totalQty, avgCost, currentPrice, currentTotalValue: totalQty * currentPrice, unrealizedPL, realizedPL };
+    return { ...asset, totalQty, avgCost, currentPrice, currentPriceUSD, currentTotalValue: totalQty * currentPrice, unrealizedPL, realizedPL };
   }).filter(item => item.totalQty > 0 || item.realizedPL !== 0);
 
   const totalValue = portfolio.reduce((acc, i) => acc + (i.totalQty * i.currentPrice), 0);
+  const totalValueUSD = portfolio.reduce((acc, i) => acc + (i.totalQty * i.currentPriceUSD), 0);
   const totalUnrealizedPL = portfolio.reduce((acc, i) => acc + i.unrealizedPL, 0);
   const totalRealizedPL = portfolio.reduce((acc, i) => acc + i.realizedPL, 0);
   const totalPL = totalUnrealizedPL + totalRealizedPL;
@@ -142,6 +148,7 @@ export default function Home() {
           <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-xl text-right">
             <div className="text-gray-400 text-sm uppercase">Toplam Değer</div>
             <div className="text-3xl font-bold">{totalValue.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</div>
+            <div className="text-sm text-gray-400">≈ {totalValueUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</div>
             <div className={`font-semibold ${totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>{totalPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺ Toplam K/Z</div>
             <div className="text-xs text-gray-400 mt-1">
               Anlık: <span className={totalUnrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}>{totalUnrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</span>
@@ -245,6 +252,7 @@ export default function Home() {
                     <td className="p-4">{item.totalQty}</td>
                     <td className="p-4">
                       <input type="number" className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32" value={item.currentPrice} onChange={(e) => setCurrentPrices(prev => ({...prev, [item.id]: parseFloat(e.target.value) || 0}))} />
+                      <div className="text-xs text-gray-400 mt-1">≈ ${item.currentPriceUSD.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
                     </td>
                     <td className={`p-4 font-bold ${item.unrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {item.unrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
