@@ -9,6 +9,7 @@ export default function Home() {
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
   const [currentPricesUSD, setCurrentPricesUSD] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
+  const [editingPriceIds, setEditingPriceIds] = useState<Set<string>>(new Set());
 
   // Form State'leri
   const [symbol, setSymbol] = useState("");
@@ -166,7 +167,16 @@ export default function Home() {
     }
     setCurrentPrices(newPrices);
     setCurrentPricesUSD(newPricesUSD);
+    setEditingPriceIds(new Set());
     setLoading(false);
+  };
+
+  const toggleEditPrice = (assetId: string) => {
+    setEditingPriceIds(prev => {
+      const next = new Set(prev);
+      if (next.has(assetId)) next.delete(assetId); else next.add(assetId);
+      return next;
+    });
   };
 
   // Ağırlıklı ortalama maliyet (weighted average cost) yöntemiyle hesaplama.
@@ -334,7 +344,24 @@ export default function Home() {
                     <td className="p-4 font-bold">{item.symbol}</td>
                     <td className="p-4">{item.totalQty}</td>
                     <td className="p-4">
-                      <input type="number" className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32" value={item.currentPrice} onChange={(e) => setCurrentPrices(prev => ({...prev, [item.id]: parseFloat(e.target.value) || 0}))} />
+                      {editingPriceIds.has(item.id) ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            autoFocus
+                            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
+                            value={item.currentPrice}
+                            onChange={(e) => setCurrentPrices(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) || 0 }))}
+                            onBlur={() => toggleEditPrice(item.id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') toggleEditPrice(item.id); }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span>{item.currentPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
+                          <button type="button" onClick={() => toggleEditPrice(item.id)} title="Elle düzenle" className="text-gray-400 hover:text-white text-xs">✎</button>
+                        </div>
+                      )}
                       <div className="text-xs text-gray-400 mt-1">≈ ${item.currentPriceUSD.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
                     </td>
                     <td className={`p-4 font-bold ${item.unrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
