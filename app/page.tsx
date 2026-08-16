@@ -21,6 +21,14 @@ export default function Home() {
   const [price, setPrice] = useState("");
   const [txDate, setTxDate] = useState(() => new Date().toISOString().slice(0, 10));
 
+  // İçe aktarma state'leri
+  const [importRows, setImportRows] = useState<any[] | null>(null);
+  const [importError, setImportError] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  // Portföyde bulunmayan semboller için karar: 'create' (yeni varlık aç) veya 'skip' (atla)
+  const [newSymbolChoices, setNewSymbolChoices] = useState<Record<string, 'create' | 'skip'>>({});
+  const [newSymbolTypes, setNewSymbolTypes] = useState<Record<string, string>>({});
+
   // Dönem (tarih aralığı) K/Z state'leri
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState(() => new Date().toISOString().slice(0, 10));
@@ -169,6 +177,81 @@ export default function Home() {
     setCurrentPricesUSD(newPricesUSD);
     setEditingPriceIds(new Set());
     setLoading(false);
+  };
+
+  const handleImportFile = async (file: File) => {
+    setImportBusy(true);
+    setImportError("");
+    setImportRows(null);
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      const res = await fetch('/api/import', { method: 'POST', body });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error || 'Dosya okunamadı.');
+      } else {
+        setImportRows(data.rows);
+        const known = new Set(assets.map(a => a.symbol.toUpperCase()));
+        const choices: Record<string, 'create' | 'skip'> = {};
+        const types: Record<string, string> = {};
+        for (const r of data.rows as any[]) {
+          if (!r.error && !known.has(r.symbol) && !(r.symbol in choices)) {
+            choices[r.symbol] = 'create';
+            types[r.symbol] = 'stock';
+          }
+        }
+        setNewSymbolChoices(choices);
+        setNewSymbolTypes(types);
+      }
+    } catch {
+      setImportError('Dosya yüklenemedi.');
+    }
+    setImportBusy(false);
+  };
+
+  const confirmImport = async () => {
+    if (!importRows) return;
+    setImportBusy(true);
+
+    const symbolToAssetId = new Map<string, string>(
+      assets.map(a => [a.symbol.toUpperCase(), a.id])
+    );
+
+    for (const [symbol, choice] of Object.entries(newSymbolChoices)) {
+      if (choice !== 'create') continue;
+      const { data } = await supabase
+        .from("assets")
+        .insert([{ symbol, name: symbol, type: newSymbolTypes[symbol] || 'stock' }])
+        .select();
+      if (data && data[0]) symbolToAssetId.set(symbol, data[0].id);
+    }
+
+    const toInsert = importRows
+      .filter(r => !r.error && symbolToAssetId.has(r.symbol))
+      .map(r => ({
+        asset_id: symbolToAssetId.get(r.symbol),
+        type: r.type,
+        quantity: r.quantity,
+        price: r.price,
+        date: r.date,
+      }));
+
+    if (toInsert.length > 0) await supabase.from("transactions").insert(toInsert);
+
+    setImportRows(null);
+    setNewSymbolChoices({});
+    setNewSymbolTypes({});
+    setImportBusy(false);
+    fetchData();
+    alert(`${toInsert.length} işlem içe aktarıldı.`);
+  };
+
+  const cancelImport = () => {
+    setImportRows(null);
+    setImportError("");
+    setNewSymbolChoices({});
+    setNewSymbolTypes({});
   };
 
   const toggleEditPrice = (assetId: string) => {
@@ -327,6 +410,22 @@ export default function Home() {
                 <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
                 <button type="submit" className="w-full bg-green-600 py-2 rounded font-bold">Kaydet</button>
              </form>
+
+             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
+                <h2 className="font-bold text-lg text-orange-400">İşlem İçe Aktar</h2>
+                <p className="text-xs text-gray-400">
+                  CSV veya Excel (.xlsx). Başlık satırında şu sütunlar olmalı:{' '}
+                  <span className="text-gray-300">Sembol, İşlem, Adet, Fiyat, Tarih</span>
+                </p>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xlsm,.txt"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
+                  className="w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-orange-600 file:text-white file:font-bold"
+                />
+                {importBusy && <div className="text-xs text-gray-400">İşleniyor...</div>}
+                {importError && <div className="text-xs text-red-400">{importError}</div>}
+             </div>
           </div>
 
           <div className="xl:col-span-3 bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -377,6 +476,80 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {importRows && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
+          <div className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col">
+            <div className="p-4 border-b border-gray-700">
+              <h2 className="font-bold text-lg text-orange-400">İçe Aktarma Önizlemesi</h2>
+              <p className="text-sm text-gray-400 mt-1">
+                {importRows.filter(r => !r.error).length} geçerli satır
+                {importRows.some(r => r.error) && `, ${importRows.filter(r => r.error).length} hatalı satır (atlanacak)`}
+              </p>
+            </div>
+
+            <div className="overflow-y-auto p-4 space-y-4">
+              {Object.keys(newSymbolChoices).length > 0 && (
+                <div className="bg-gray-900/50 border border-gray-700 rounded p-3">
+                  <div className="font-bold text-sm mb-2">Portföyünde olmayan semboller</div>
+                  <div className="space-y-2">
+                    {Object.keys(newSymbolChoices).map(sym => (
+                      <div key={sym} className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold w-24">{sym}</span>
+                        <select
+                          value={newSymbolChoices[sym]}
+                          onChange={(e) => setNewSymbolChoices(prev => ({ ...prev, [sym]: e.target.value as 'create' | 'skip' }))}
+                          className="p-1 rounded bg-gray-700 border border-gray-600 text-sm"
+                        >
+                          <option value="create">Yeni varlık oluştur</option>
+                          <option value="skip">Atla</option>
+                        </select>
+                        {newSymbolChoices[sym] === 'create' && (
+                          <select
+                            value={newSymbolTypes[sym] || 'stock'}
+                            onChange={(e) => setNewSymbolTypes(prev => ({ ...prev, [sym]: e.target.value }))}
+                            className="p-1 rounded bg-gray-700 border border-gray-600 text-sm"
+                          >
+                            <option value="stock">Hisse</option>
+                            <option value="fund">Fon</option>
+                            <option value="currency">Döviz</option>
+                            <option value="metal">Değerli Maden</option>
+                          </select>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-900/50 text-gray-400">
+                  <tr><th className="p-2">Satır</th><th className="p-2">Sembol</th><th className="p-2">İşlem</th><th className="p-2">Adet</th><th className="p-2">Fiyat</th><th className="p-2">Tarih</th></tr>
+                </thead>
+                <tbody>
+                  {importRows.map((r, i) => (
+                    <tr key={i} className={`border-b border-gray-700 ${r.error ? 'text-red-400' : ''}`}>
+                      <td className="p-2">{r.row}</td>
+                      <td className="p-2 font-bold">{r.symbol}</td>
+                      <td className="p-2">{r.type === 'buy' ? 'Alım' : 'Satım'}</td>
+                      <td className="p-2">{r.quantity}</td>
+                      <td className="p-2">{r.price}</td>
+                      <td className="p-2">{r.error ? r.error : r.date}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="p-4 border-t border-gray-700 flex justify-end gap-3">
+              <button onClick={cancelImport} className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">İptal</button>
+              <button onClick={confirmImport} disabled={importBusy} className="px-4 py-2 rounded bg-orange-600 hover:bg-orange-700 font-bold disabled:opacity-50">
+                {importBusy ? "Aktarılıyor..." : "İçe Aktar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
