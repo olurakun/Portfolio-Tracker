@@ -18,20 +18,35 @@ async function fetchYahooPrice(ticker: string): Promise<number | null> {
   }
 }
 
+// TEFAS'ın gerçek (dokümante olmayan ama doğrulanmış) fon fiyat endpoint'i.
+// Kimlik doğrulaması gerektirmiyor; periyod=1 son ~1 aylık günlük fiyatları
+// döndürür, en güncel fiyat listenin son elemanı.
+async function fetchTefasPrice(fundCode: string): Promise<number | null> {
+  try {
+    const res = await fetch("https://www.tefas.gov.tr/api/funds/fonFiyatBilgiGetir", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ fonKodu: fundCode, dil: 'TR', periyod: 1 }),
+      cache: 'no-store',
+    });
+    const data = await res.json();
+    const list = data?.resultList;
+    if (Array.isArray(list) && list.length > 0) {
+      const latest = list[list.length - 1];
+      return typeof latest.fiyat === "number" ? latest.fiyat : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const symbol = searchParams.get("symbol")?.toUpperCase().trim();
   const type = searchParams.get("type");
 
   if (!symbol) return NextResponse.json({ price: 0 });
-
-  const tefasHeaders = {
-    ...DEFAULT_HEADERS,
-    'Referer': 'https://www.tefas.gov.tr/',
-    'Origin': 'https://www.tefas.gov.tr',
-    'X-Requested-With': 'XMLHttpRequest', // TEFAS API'sinin en çok sevdiği başlık
-    'Accept': 'application/json, text/javascript, */*; q=0.01'
-  };
 
   try {
     // 1. DÖVİZ (TRY karşılığı)
@@ -50,22 +65,8 @@ export async function GET(request: Request) {
 
     // 3. FONLAR - TEFAS Doğrudan Erişim (şu an sadece TR fonları destekleniyor)
     if (type === "fund") {
-      try {
-        const res = await fetch("https://www.tefas.gov.tr/api/Teias/GetFundPriceList", {
-          method: 'POST', // TEFAS API POST ister
-          headers: tefasHeaders,
-          cache: 'no-store'
-        });
-        const data = await res.json();
-
-        if (data && Array.isArray(data)) {
-          const fund = data.find((f: any) => f.fundCode.toUpperCase() === symbol);
-          if (fund) return NextResponse.json({ price: parseFloat(fund.price) });
-        }
-      } catch (e) {
-        console.error("[TEFAS API HATA]:", e);
-      }
-      return NextResponse.json({ price: 0 });
+      const price = await fetchTefasPrice(symbol);
+      return NextResponse.json({ price: price ?? 0 });
     }
 
     // 4. HİSSE SENETLERİ (yerli + yabancı)
