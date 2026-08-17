@@ -6,6 +6,25 @@ const DEFAULT_HEADERS = {
 
 const TROY_OUNCE_IN_GRAMS = 31.1034768;
 
+// Portföyün ana para birimi — her şey bu birime çevrilip gösteriliyor.
+// Ana para birimi kendi cinsinden her zaman 1 birim eder (1 TL = 1 TL), bu yüzden
+// nakit olarak tutulan bakiye için dış servise sorulmaz.
+const BASE_CURRENCY = 'TRY';
+
+// Kullanıcıların elle girebileceği yaygın takma adlar resmî ISO koduna çevrilir.
+const CURRENCY_ALIASES: Record<string, string> = {
+  TL: 'TRY',
+  TRL: 'TRY',
+  '₺': 'TRY',
+  '$': 'USD',
+  '€': 'EUR',
+  '£': 'GBP',
+};
+
+function normalizeCurrency(symbol: string): string {
+  return CURRENCY_ALIASES[symbol] ?? symbol;
+}
+
 async function fetchYahooQuote(ticker: string): Promise<{ price: number; currency: string } | null> {
   try {
     const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`, {
@@ -71,9 +90,12 @@ async function fetchTefasPrice(fundCode: string): Promise<number | null> {
     });
     const data = await res.json();
     const list = data?.resultList;
-    if (Array.isArray(list) && list.length > 0) {
-      const latest = list[list.length - 1];
-      return typeof latest.fiyat === "number" ? latest.fiyat : null;
+    if (!Array.isArray(list)) return null;
+    // TEFAS, fiyatı henüz açıklanmamış günler için de kayıt döndürür ama fiyatı 0 olur.
+    // Bu yüzden sondan geriye doğru yürüyüp sıfır olmayan son fiyatı alıyoruz.
+    for (let i = list.length - 1; i >= 0; i--) {
+      const fiyat = list[i]?.fiyat;
+      if (typeof fiyat === "number" && fiyat > 0) return fiyat;
     }
     return null;
   } catch {
@@ -100,9 +122,11 @@ async function fetchTefasHistoricalPrice(fundCode: string, date: string): Promis
     const data = await res.json();
     const list = data?.resultList;
     if (!Array.isArray(list)) return null;
+    // Fiyatı açıklanmamış günler 0 olarak geldiği için sıfırları atlayıp
+    // hedef tarihe kadarki son geçerli fiyatı alıyoruz.
     let best: number | null = null;
     for (const entry of list) {
-      if (entry.tarih <= date && typeof entry.fiyat === "number") best = entry.fiyat;
+      if (entry.tarih <= date && typeof entry.fiyat === "number" && entry.fiyat > 0) best = entry.fiyat;
     }
     return best;
   } catch {
@@ -135,8 +159,9 @@ async function getHistoricalUsdTryRate(date: string): Promise<number | null> {
 
 // Herhangi bir para birimindeki tutarı hem TRY hem USD karşılığına çevirir.
 // `date` verilirse (tarihsel sorgu) Frankfurter'ın geçmişe dönük kurları kullanılır.
-async function convertToTryAndUsd(amount: number, currency: string, usdTryRate: number | null, date: string | null): Promise<{ tryAmount: number | null; usdAmount: number | null }> {
-  if (currency === "TRY") {
+async function convertToTryAndUsd(amount: number, rawCurrency: string, usdTryRate: number | null, date: string | null): Promise<{ tryAmount: number | null; usdAmount: number | null }> {
+  const currency = normalizeCurrency(rawCurrency);
+  if (currency === BASE_CURRENCY) {
     return { tryAmount: amount, usdAmount: usdTryRate ? amount / usdTryRate : null };
   }
   if (currency === "USD") {
