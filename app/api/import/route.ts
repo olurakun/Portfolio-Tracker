@@ -4,7 +4,7 @@ import ExcelJS from "exceljs";
 export type ParsedRow = {
   row: number;
   symbol: string;
-  type: 'buy' | 'sell';
+  type: 'buy' | 'sell' | 'dividend';
   quantity: number;
   price: number;
   date: string;
@@ -92,11 +92,12 @@ function parseDate(value: unknown): string | null {
   return null;
 }
 
-function parseType(value: unknown): 'buy' | 'sell' | null {
+function parseType(value: unknown): 'buy' | 'sell' | 'dividend' | null {
   if (typeof value !== "string") return null;
   const clean = fold(value);
   if (['alim', 'alis', 'al', 'buy', 'b'].includes(clean)) return 'buy';
   if (['satim', 'satis', 'sat', 'sell', 's'].includes(clean)) return 'sell';
+  if (['temettu', 'kar payi', 'dividend', 'div'].includes(clean)) return 'dividend';
   return null;
 }
 
@@ -179,7 +180,8 @@ function gridToRows(grid: unknown[][]): { rows: ParsedRow[]; missingColumns: str
 
     const problems: string[] = [];
     if (!type) problems.push('işlem tipi okunamadı');
-    if (quantity === null || quantity <= 0) problems.push('adet okunamadı');
+    // Temettüde adet kavramı yok: tutarın tamamı fiyat alanında, adet 1 kabul edilir.
+    if (type !== 'dividend' && (quantity === null || quantity <= 0)) problems.push('adet okunamadı');
     if (price === null || price < 0) problems.push('fiyat okunamadı');
     if (!date) problems.push('tarih okunamadı');
 
@@ -187,7 +189,7 @@ function gridToRows(grid: unknown[][]): { rows: ParsedRow[]; missingColumns: str
       row: i + 1,
       symbol: rawSymbol,
       type: type ?? 'buy',
-      quantity: quantity ?? 0,
+      quantity: type === 'dividend' ? 1 : (quantity ?? 0),
       price: price ?? 0,
       date: date ?? '',
       currency: currency ?? 'TRY',

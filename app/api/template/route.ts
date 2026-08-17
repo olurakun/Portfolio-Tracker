@@ -10,14 +10,15 @@ const EXAMPLE_ROWS = [
   ['THYAO', 'Satım', 40, 318.00, '01.07.2026', 'TRY'],
   ['TLY', 'Alım', 5, 7369.52, '14.07.2026', 'TRY'],
   ['XAU', 'Alım', 20, 6832.11, '01.08.2026', 'TRY'],
+  ['THYAO', 'Temettü', '', 125.50, '10.08.2026', 'TRY'],
 ];
 
 const NOTES = [
   ['Sütun', 'Açıklama'],
   ['Sembol', 'Varlığın kodu. Hisse: THYAO, AAPL · Fon: TLY · Döviz: USD, EUR · Maden: XAU (altın), XAG (gümüş). Yabancı borsalar için gerekiyorsa sonek kullanın (ör. THYAO.IS).'],
-  ['İşlem', 'Alım veya Satım. "Alış", "Satış", "Buy", "Sell" de kabul edilir.'],
-  ['Adet', 'Sıfırdan büyük sayı. Ondalık için virgül veya nokta kullanabilirsiniz (1.234,56 ya da 1234.56).'],
-  ['Fiyat', 'Birim fiyat (adet başına), işlem para biriminde. Toplam tutar değil.'],
+  ['İşlem', 'Alım, Satım veya Temettü. "Alış", "Satış", "Buy", "Sell", "Kâr Payı" de kabul edilir.'],
+  ['Adet', 'Sıfırdan büyük sayı. Ondalık için virgül veya nokta kullanabilirsiniz (1.234,56 ya da 1234.56). Temettü satırlarında boş bırakın.'],
+  ['Fiyat', 'Birim fiyat (adet başına), işlem para biriminde. Toplam tutar değil. Temettü satırlarında ise net temettünün TOPLAM tutarını yazın.'],
   ['Tarih', 'GG.AA.YYYY (15.06.2026) veya YYYY-AA-GG (2026-06-15).'],
   ['Para Birimi', 'Fiyatın hangi para biriminde olduğu: TRY veya USD. ABD borsalarındaki hisseler (AAPL, SCHD, UNH...) genelde USD, BIST hisseleri ve TEFAS fonları TRY. Boş bırakılırsa TRY varsayılır — yanlış olursa kâr/zarar tamamen hatalı çıkar.'],
   ['', ''],

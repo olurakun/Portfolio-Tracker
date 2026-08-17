@@ -120,7 +120,11 @@ export default function Home() {
   const getHeldQty = (assetId: string) => {
     return transactions
       .filter(tx => tx.asset_id === assetId)
-      .reduce((qty, tx) => tx.type === 'buy' ? qty + Number(tx.quantity) : qty - Number(tx.quantity), 0);
+      .reduce((qty, tx) => {
+        if (tx.type === 'buy') return qty + Number(tx.quantity);
+        if (tx.type === 'sell') return qty - Number(tx.quantity);
+        return qty; // temettü adedi değiştirmez
+      }, 0);
   };
 
   const addTransaction = async (e: React.FormEvent) => {
@@ -132,7 +136,14 @@ export default function Home() {
         return;
       }
     }
-    await supabase.from("transactions").insert([{ asset_id: selectedAssetId, type: txType, quantity: Number(quantity), price: Number(price), date: txDate }]);
+    // Temettüde adet kavramı yok; tutarın tamamı fiyat alanında tutulur (adet = 1).
+    await supabase.from("transactions").insert([{
+      asset_id: selectedAssetId,
+      type: txType,
+      quantity: txType === 'dividend' ? 1 : Number(quantity),
+      price: Number(price),
+      date: txDate,
+    }]);
     setQuantity(""); setPrice(""); setTxDate(new Date().toISOString().slice(0, 10)); fetchData();
   };
 
@@ -152,13 +163,16 @@ export default function Home() {
 
       for (const tx of assetTx) {
         const qty = Number(tx.quantity);
-        const txPrice = Number(tx.price);
-        const signedQty = tx.type === 'buy' ? qty : -qty;
+        const prices = txPrices(tx);
+        if (!prices) continue;
+        const txPrice = prices.tl;
+        // Temettü adedi değiştirmez ama dönem içindeyse nakit girişi sayılır.
+        const signedQty = tx.type === 'buy' ? qty : tx.type === 'sell' ? -qty : 0;
         if (tx.date < rangeStart) qtyBeforeStart += signedQty;
         if (tx.date <= rangeEnd) qtyAtEnd += signedQty;
         if (tx.date >= rangeStart && tx.date <= rangeEnd) {
           if (tx.type === 'buy') buysInRange += qty * txPrice;
-          else sellsInRange += qty * txPrice;
+          else sellsInRange += qty * txPrice; // satış ve temettü: nakit girişi
         }
       }
 
@@ -339,11 +353,14 @@ export default function Home() {
     return null;
   };
 
+  // Maliyet FIFO (ilk giren ilk çıkar) yöntemiyle hesaplanıyor: her alım ayrı bir lot
+  // olarak kuyruğa girer, satışta en eski lottan düşülür. Midas ekstresi de bu yöntemi
+  // kullanıyor, böylece rakamlar ekstreyle birebir tutuyor.
   const portfolio = assets.map(asset => {
     const assetTx = transactions.filter(tx => tx.asset_id === asset.id);
-    let totalQty = 0;
-    let totalCost = 0, realizedPL = 0;          // TL bazlı (kur etkisi dahil)
-    let totalCostUSD = 0, realizedPLUSD = 0;    // USD bazlı (kur etkisi hariç)
+    const lots: { qty: number; tl: number; usd: number }[] = [];
+    let realizedPL = 0;      // TL bazlı (kur etkisi dahil)
+    let realizedPLUSD = 0;   // USD bazlı (kur etkisi hariç)
 
     assetTx.forEach(tx => {
       const qty = Number(tx.quantity);
@@ -351,21 +368,28 @@ export default function Home() {
       if (!prices) return;
 
       if (tx.type === 'buy') {
-        totalQty += qty;
-        totalCost += qty * prices.tl;
-        totalCostUSD += qty * prices.usd;
+        lots.push({ qty, tl: prices.tl, usd: prices.usd });
       } else if (tx.type === 'sell') {
-        const avgTL = totalQty > 0 ? totalCost / totalQty : 0;
-        const avgUSD = totalQty > 0 ? totalCostUSD / totalQty : 0;
-        const sellQty = Math.min(qty, totalQty); // negatife düşmeyi engeller
-        realizedPL += (prices.tl - avgTL) * sellQty;
-        realizedPLUSD += (prices.usd - avgUSD) * sellQty;
-        totalCost -= avgTL * sellQty;
-        totalCostUSD -= avgUSD * sellQty;
-        totalQty -= sellQty;
+        let remaining = qty;
+        while (remaining > 1e-9 && lots.length > 0) {
+          const lot = lots[0];
+          const take = Math.min(remaining, lot.qty);
+          realizedPL += (prices.tl - lot.tl) * take;
+          realizedPLUSD += (prices.usd - lot.usd) * take;
+          lot.qty -= take;
+          remaining -= take;
+          if (lot.qty <= 1e-9) lots.shift();
+        }
+      } else if (tx.type === 'dividend') {
+        // Temettüde adet değişmez; tutar doğrudan gerçekleşmiş gelir olarak eklenir.
+        realizedPL += qty * prices.tl;
+        realizedPLUSD += qty * prices.usd;
       }
     });
 
+    const totalQty = lots.reduce((s, l) => s + l.qty, 0);
+    const totalCost = lots.reduce((s, l) => s + l.qty * l.tl, 0);
+    const totalCostUSD = lots.reduce((s, l) => s + l.qty * l.usd, 0);
     const avgCost = totalQty > 0 ? (totalCost / totalQty) : 0;
     const currentPrice = currentPrices[asset.id] || 0;
     const currentPriceUSD = currentPricesUSD[asset.id] || 0;
@@ -495,11 +519,18 @@ export default function Home() {
                 <h2 className="font-bold text-lg mb-2 text-green-400">İşlem Gir</h2>
                 <select onChange={(e) => setSelectedAssetId(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600">{assets.map(a => <option key={a.id} value={a.id}>{a.symbol}</option>)}</select>
                 <div className="flex gap-2">
-                    <button type="button" onClick={() => setTxType('buy')} className={`flex-1 py-1 rounded ${txType==='buy' ? 'bg-green-600' : 'bg-gray-700'}`}>Alım</button>
-                    <button type="button" onClick={() => setTxType('sell')} className={`flex-1 py-1 rounded ${txType==='sell' ? 'bg-red-600' : 'bg-gray-700'}`}>Satım</button>
+                    <button type="button" onClick={() => setTxType('buy')} className={`flex-1 py-1 rounded text-sm ${txType==='buy' ? 'bg-green-600' : 'bg-gray-700'}`}>Alım</button>
+                    <button type="button" onClick={() => setTxType('sell')} className={`flex-1 py-1 rounded text-sm ${txType==='sell' ? 'bg-red-600' : 'bg-gray-700'}`}>Satım</button>
+                    <button type="button" onClick={() => setTxType('dividend')} className={`flex-1 py-1 rounded text-sm ${txType==='dividend' ? 'bg-blue-600' : 'bg-gray-700'}`}>Temettü</button>
                 </div>
-                <input type="number" placeholder="Adet" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
-                <input type="number" placeholder="Fiyat" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+                {txType === 'dividend' ? (
+                  <input type="number" step="any" placeholder="Net temettü tutarı (toplam)" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+                ) : (
+                  <>
+                    <input type="number" step="any" placeholder="Adet" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+                    <input type="number" step="any" placeholder="Fiyat" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+                  </>
+                )}
                 <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
                 <button type="submit" className="w-full bg-green-600 py-2 rounded font-bold">Kaydet</button>
              </form>
@@ -685,7 +716,7 @@ export default function Home() {
                     <tr key={i} className={`border-b border-gray-700 ${r.error ? 'text-red-400' : ''}`}>
                       <td className="p-2">{r.row}</td>
                       <td className="p-2 font-bold">{r.symbol}</td>
-                      <td className="p-2">{r.type === 'buy' ? 'Alım' : 'Satım'}</td>
+                      <td className="p-2">{r.type === 'buy' ? 'Alım' : r.type === 'sell' ? 'Satım' : 'Temettü'}</td>
                       <td className="p-2">{r.quantity}</td>
                       <td className="p-2">
                         {r.price}
