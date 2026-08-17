@@ -12,6 +12,13 @@ export default function Home() {
   const [editingPriceIds, setEditingPriceIds] = useState<Set<string>>(new Set());
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
 
+  // Portföyü geçmiş bir tarihe göre görüntüleme. Boşsa "bugün" demektir.
+  const [asOfDate, setAsOfDate] = useState("");
+  const [asOfPrices, setAsOfPrices] = useState<Record<string, number>>({});
+  const [asOfPricesUSD, setAsOfPricesUSD] = useState<Record<string, number>>({});
+  const [asOfLoading, setAsOfLoading] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
+
   // Form State'leri
   const [symbol, setSymbol] = useState("");
   const [name, setName] = useState("");
@@ -315,6 +322,29 @@ export default function Home() {
     setNewSymbolTypes({});
   };
 
+  // Geçmiş bir tarih seçildiğinde o tarihteki fiyatları paralel olarak çeker.
+  useEffect(() => {
+    if (!asOfDate || assets.length === 0) { setAsOfPrices({}); setAsOfPricesUSD({}); return; }
+    let cancelled = false;
+    setAsOfLoading(true);
+    Promise.all(assets.map(async (asset) => {
+      try {
+        const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&date=${asOfDate}`);
+        const data = await res.json();
+        return { id: asset.id, price: data.price || 0, priceUSD: data.priceUSD || 0 };
+      } catch {
+        return { id: asset.id, price: 0, priceUSD: 0 };
+      }
+    })).then(results => {
+      if (cancelled) return;
+      const p: Record<string, number> = {}, u: Record<string, number> = {};
+      for (const r of results) { p[r.id] = r.price; u[r.id] = r.priceUSD; }
+      setAsOfPrices(p); setAsOfPricesUSD(u); setAsOfLoading(false);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asOfDate, assetIdsKey]);
+
   const toggleEditPrice = (assetId: string) => {
     setEditingPriceIds(prev => {
       const next = new Set(prev);
@@ -356,8 +386,15 @@ export default function Home() {
   // Maliyet FIFO (ilk giren ilk çıkar) yöntemiyle hesaplanıyor: her alım ayrı bir lot
   // olarak kuyruğa girer, satışta en eski lottan düşülür. Midas ekstresi de bu yöntemi
   // kullanıyor, böylece rakamlar ekstreyle birebir tutuyor.
+  // Geçmiş tarih seçiliyse hem işlemler o tarihe kadar kesilir hem de o günün
+  // fiyatları kullanılır; böylece tablo o tarihteki portföyün fotoğrafını gösterir.
+  const isHistorical = asOfDate !== "";
+  const viewPrices = isHistorical ? asOfPrices : currentPrices;
+  const viewPricesUSD = isHistorical ? asOfPricesUSD : currentPricesUSD;
+
   const portfolio = assets.map(asset => {
-    const assetTx = transactions.filter(tx => tx.asset_id === asset.id);
+    const assetTx = transactions.filter(tx =>
+      tx.asset_id === asset.id && (!isHistorical || tx.date <= asOfDate));
     const lots: { qty: number; tl: number; usd: number }[] = [];
     let realizedPL = 0;      // TL bazlı (kur etkisi dahil)
     let realizedPLUSD = 0;   // USD bazlı (kur etkisi hariç)
@@ -391,19 +428,23 @@ export default function Home() {
     const totalCost = lots.reduce((s, l) => s + l.qty * l.tl, 0);
     const totalCostUSD = lots.reduce((s, l) => s + l.qty * l.usd, 0);
     const avgCost = totalQty > 0 ? (totalCost / totalQty) : 0;
-    const currentPrice = currentPrices[asset.id] || 0;
-    const currentPriceUSD = currentPricesUSD[asset.id] || 0;
+    const currentPrice = viewPrices[asset.id] || 0;
+    const currentPriceUSD = viewPricesUSD[asset.id] || 0;
     const unrealizedPL = (totalQty * currentPrice) - totalCost;
     const unrealizedPLUSD = (totalQty * currentPriceUSD) - totalCostUSD;
     return {
       ...asset, totalQty, avgCost, currentPrice, currentPriceUSD,
-      currentTotalValue: totalQty * currentPrice,
+      value: totalQty * currentPrice,
+      valueUSD: totalQty * currentPriceUSD,
       unrealizedPL, realizedPL, unrealizedPLUSD, realizedPLUSD,
     };
   }).filter(item => item.totalQty > 0 || item.realizedPL !== 0);
 
-  const totalValue = portfolio.reduce((acc, i) => acc + (i.totalQty * i.currentPrice), 0);
-  const totalValueUSD = portfolio.reduce((acc, i) => acc + (i.totalQty * i.currentPriceUSD), 0);
+  const openPositions = portfolio.filter(i => i.totalQty > 0);
+  const closedPositions = portfolio.filter(i => i.totalQty <= 0);
+
+  const totalValue = portfolio.reduce((acc, i) => acc + i.value, 0);
+  const totalValueUSD = portfolio.reduce((acc, i) => acc + i.valueUSD, 0);
   const totalUnrealizedPL = portfolio.reduce((acc, i) => acc + i.unrealizedPL, 0);
   const totalRealizedPL = portfolio.reduce((acc, i) => acc + i.realizedPL, 0);
   const totalPL = totalUnrealizedPL + totalRealizedPL;
@@ -414,9 +455,13 @@ export default function Home() {
       <div className="max-w-[1400px] mx-auto">
         <header className="flex justify-between items-center mb-10">
           <h1 className="text-4xl font-bold">Portföy Takip</h1>
-          <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-xl text-right">
-            <div className="text-gray-400 text-sm uppercase">Toplam Değer</div>
-            <div className="text-3xl font-bold">{totalValue.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</div>
+          <div className={`p-4 rounded-xl border shadow-xl text-right ${isHistorical ? 'bg-amber-950/40 border-amber-700/60' : 'bg-gray-800 border-gray-700'}`}>
+            <div className="text-gray-400 text-sm uppercase">
+              {isHistorical ? `${asOfDate} Tarihindeki Değer` : 'Toplam Değer'}
+            </div>
+            <div className="text-3xl font-bold">
+              {asOfLoading ? '…' : totalValue.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+            </div>
             <div className="text-sm text-gray-400">≈ {totalValueUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</div>
             <div className={`font-semibold ${totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>{totalPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺ Toplam K/Z</div>
             <div className="text-xs text-gray-400 mt-1">
@@ -429,6 +474,31 @@ export default function Home() {
             </div>
           </div>
         </header>
+
+        <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Portföyü şu tarihe göre göster</label>
+            <input
+              type="date"
+              value={asOfDate}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={(e) => setAsOfDate(e.target.value)}
+              className="p-2 rounded bg-gray-700 border border-gray-600"
+            />
+          </div>
+          {isHistorical ? (
+            <button onClick={() => setAsOfDate("")} className="px-4 py-2 rounded bg-amber-700 hover:bg-amber-600 font-bold">
+              Bugüne dön
+            </button>
+          ) : (
+            <span className="text-sm text-gray-500 pb-2">Boş bırakılırsa bugünü gösterir</span>
+          )}
+          {isHistorical && (
+            <div className="ml-auto text-sm text-amber-400 pb-2">
+              {asOfLoading ? 'O tarihin fiyatları çekiliyor…' : `${asOfDate} tarihindeki portföy görüntüleniyor`}
+            </div>
+          )}
+        </div>
 
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-8 flex flex-wrap items-end gap-3">
           <div>
@@ -585,33 +655,53 @@ export default function Home() {
             </div>
             <table className="w-full text-left">
               <thead className="bg-gray-900/50 text-gray-400 text-sm">
-                <tr><th className="p-4">Sembol</th><th className="p-4">Adet</th><th className="p-4">Güncel Fiyat</th><th className="p-4">Anlık K/Z</th><th className="p-4">Realize K/Z</th></tr>
+                <tr>
+                  <th className="p-4">Sembol</th>
+                  <th className="p-4">Adet</th>
+                  <th className="p-4">{isHistorical ? 'O Günkü Fiyat' : 'Güncel Fiyat'}</th>
+                  <th className="p-4">Değer</th>
+                  <th className="p-4">Pay</th>
+                  <th className="p-4">Anlık K/Z</th>
+                  <th className="p-4">Realize K/Z</th>
+                </tr>
               </thead>
               <tbody>
-                {portfolio.map((item, idx) => (
-                  <tr key={idx} className="border-b border-gray-700 hover:bg-gray-750">
+                {openPositions.map((item) => (
+                  <tr key={item.id} className="border-b border-gray-700 hover:bg-gray-750">
                     <td className="p-4 font-bold">{item.symbol}</td>
-                    <td className="p-4">{item.totalQty}</td>
+                    <td className="p-4">{item.totalQty.toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</td>
                     <td className="p-4">
                       {editingPriceIds.has(item.id) ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            autoFocus
-                            className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
-                            value={item.currentPrice}
-                            onChange={(e) => setCurrentPrices(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) || 0 }))}
-                            onBlur={() => toggleEditPrice(item.id)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') toggleEditPrice(item.id); }}
-                          />
-                        </div>
+                        <input
+                          type="number"
+                          autoFocus
+                          className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
+                          value={item.currentPrice}
+                          onChange={(e) => setCurrentPrices(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) || 0 }))}
+                          onBlur={() => toggleEditPrice(item.id)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') toggleEditPrice(item.id); }}
+                        />
                       ) : (
                         <div className="flex items-center gap-2">
                           <span>{item.currentPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
-                          <button type="button" onClick={() => toggleEditPrice(item.id)} title="Elle düzenle" className="text-gray-400 hover:text-white text-xs">✎</button>
+                          {!isHistorical && (
+                            <button type="button" onClick={() => toggleEditPrice(item.id)} title="Elle düzenle" className="text-gray-400 hover:text-white text-xs">✎</button>
+                          )}
                         </div>
                       )}
                       <div className="text-xs text-gray-400 mt-1">≈ ${item.currentPriceUSD.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="font-bold">{item.value.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</div>
+                      <div className="text-xs text-gray-400 mt-1">{item.valueUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="text-sm text-gray-300">
+                        {totalValue > 0 ? `%${(item.value / totalValue * 100).toFixed(1)}` : '—'}
+                      </div>
+                      <div className="mt-1 h-1.5 w-16 bg-gray-700 rounded overflow-hidden">
+                        <div className="h-full bg-purple-500" style={{ width: `${totalValue > 0 ? (item.value / totalValue * 100) : 0}%` }} />
+                      </div>
                     </td>
                     <td className="p-4">
                       <div className={`font-bold ${item.unrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -626,6 +716,63 @@ export default function Home() {
                         {item.realizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
                       </div>
                       <div className="text-xs text-gray-400 mt-1">
+                        {item.realizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {openPositions.length === 0 && (
+                  <tr><td colSpan={7} className="p-8 text-center text-gray-500">
+                    {isHistorical ? `${asOfDate} tarihinde açık pozisyon yok.` : 'Açık pozisyon yok.'}
+                  </td></tr>
+                )}
+
+                <tr className="bg-gray-900/40 border-t-2 border-gray-600">
+                  <td className="p-4 font-bold" colSpan={3}>TOPLAM</td>
+                  <td className="p-4">
+                    <div className="font-bold">{totalValue.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</div>
+                    <div className="text-xs text-gray-400 mt-1">{totalValueUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</div>
+                  </td>
+                  <td className="p-4 text-sm text-gray-400">%100</td>
+                  <td className="p-4">
+                    <div className={`font-bold ${totalUnrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {totalUnrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className={`font-bold ${totalRealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {totalRealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+                    </div>
+                  </td>
+                </tr>
+
+                {closedPositions.length > 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-0">
+                      <button
+                        onClick={() => setShowClosed(s => !s)}
+                        className="w-full text-left px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-gray-700/40 transition-colors"
+                      >
+                        {showClosed ? '▾' : '▸'} Geçmiş pozisyonlar ({closedPositions.length})
+                      </button>
+                    </td>
+                  </tr>
+                )}
+
+                {showClosed && closedPositions.map((item) => (
+                  <tr key={item.id} className="border-b border-gray-700 text-gray-400 hover:bg-gray-750">
+                    <td className="p-4 font-bold">{item.symbol}</td>
+                    <td className="p-4">—</td>
+                    <td className="p-4">{item.currentPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
+                    <td className="p-4">—</td>
+                    <td className="p-4">—</td>
+                    <td className="p-4">—</td>
+                    <td className="p-4">
+                      <div className={`font-bold ${item.realizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {item.realizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
                         {item.realizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
                       </div>
                     </td>
