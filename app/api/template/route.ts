@@ -2,14 +2,14 @@ import ExcelJS from "exceljs";
 
 // İçe aktarma şablonunu uygulama içinde üretiyoruz ki parser'ın (app/api/import/route.ts)
 // beklediği başlıklarla her zaman birebir aynı kalsın — statik bir dosya zamanla eskir.
-const HEADERS = ['Sembol', 'İşlem', 'Adet', 'Fiyat', 'Tarih'];
+const HEADERS = ['Sembol', 'İşlem', 'Adet', 'Fiyat', 'Tarih', 'Para Birimi'];
 
 const EXAMPLE_ROWS = [
-  ['THYAO', 'Alım', 100, 305.25, '15.06.2026'],
-  ['AAPL', 'Alım', 10, 296.42, '20.06.2026'],
-  ['THYAO', 'Satım', 40, 318.00, '01.07.2026'],
-  ['TLY', 'Alım', 5, 7369.52, '14.07.2026'],
-  ['XAU', 'Alım', 20, 6832.11, '01.08.2026'],
+  ['THYAO', 'Alım', 100, 305.25, '15.06.2026', 'TRY'],
+  ['AAPL', 'Alım', 10, 296.42, '20.06.2026', 'USD'],
+  ['THYAO', 'Satım', 40, 318.00, '01.07.2026', 'TRY'],
+  ['TLY', 'Alım', 5, 7369.52, '14.07.2026', 'TRY'],
+  ['XAU', 'Alım', 20, 6832.11, '01.08.2026', 'TRY'],
 ];
 
 const NOTES = [
@@ -19,6 +19,7 @@ const NOTES = [
   ['Adet', 'Sıfırdan büyük sayı. Ondalık için virgül veya nokta kullanabilirsiniz (1.234,56 ya da 1234.56).'],
   ['Fiyat', 'Birim fiyat (adet başına), işlem para biriminde. Toplam tutar değil.'],
   ['Tarih', 'GG.AA.YYYY (15.06.2026) veya YYYY-AA-GG (2026-06-15).'],
+  ['Para Birimi', 'Fiyatın hangi para biriminde olduğu: TRY veya USD. ABD borsalarındaki hisseler (AAPL, SCHD, UNH...) genelde USD, BIST hisseleri ve TEFAS fonları TRY. Boş bırakılırsa TRY varsayılır — yanlış olursa kâr/zarar tamamen hatalı çıkar.'],
   ['', ''],
   ['Not', 'Başlık satırını silmeyin. Örnek satırların yerine kendi işlemlerinizi yazın.'],
   ['Not', 'Portföyde olmayan bir sembol girerseniz, içe aktarma sırasında onu yeni varlık olarak eklemeniz istenecek.'],
@@ -36,6 +37,7 @@ export async function GET() {
     { key: 'quantity', width: 12 },
     { key: 'price', width: 14 },
     { key: 'date', width: 14 },
+    { key: 'currency', width: 14 },
   ];
 
   const headerRow = sheet.addRow(HEADERS);

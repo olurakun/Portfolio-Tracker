@@ -10,6 +10,7 @@ export default function Home() {
   const [currentPricesUSD, setCurrentPricesUSD] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [editingPriceIds, setEditingPriceIds] = useState<Set<string>>(new Set());
+  const [fxRates, setFxRates] = useState<Record<string, number>>({});
 
   // Form State'leri
   const [symbol, setSymbol] = useState("");
@@ -28,6 +29,9 @@ export default function Home() {
   // Portföyde bulunmayan semboller için karar: 'create' (yeni varlık aç) veya 'skip' (atla)
   const [newSymbolChoices, setNewSymbolChoices] = useState<Record<string, 'create' | 'skip'>>({});
   const [newSymbolTypes, setNewSymbolTypes] = useState<Record<string, string>>({});
+  // Dosyadaki her sembol için para birimi — dosyada sütun varsa oradan gelir,
+  // yoksa TRY varsayılır ve kullanıcı buradan düzeltebilir.
+  const [importCurrencies, setImportCurrencies] = useState<Record<string, string>>({});
 
   // Dönem (tarih aralığı) K/Z state'leri
   const [rangeStart, setRangeStart] = useState("");
@@ -42,6 +46,23 @@ export default function Home() {
   const [manualMode, setManualMode] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
+
+  // İşlemlerin kapsadığı tüm tarih aralığının USD/TRY kurunu tek çağrıda alır.
+  // Maliyetin USD karşılığı bu kurlarla hesaplanıyor (bkz. txPrices).
+  const txDateSpan = transactions.length > 0
+    ? `${transactions[0]?.date ?? ''}|${transactions[transactions.length - 1]?.date ?? ''}`
+    : '';
+  useEffect(() => {
+    if (!txDateSpan) return;
+    const dates = transactions.map(t => t.date).filter(Boolean).sort();
+    if (dates.length === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
+    fetch(`/api/fxrates?start=${dates[0]}&end=${today}`)
+      .then(r => r.json())
+      .then(d => setFxRates(d.rates || {}))
+      .catch(() => setFxRates({}));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txDateSpan]);
 
   // Varlık listesi geldiğinde (ve yeni varlık eklendiğinde) fiyatları kendiliğinden çeker;
   // böylece sayfa yenilendiğinde kullanıcının butona basması gerekmiyor. Bağımlılık
@@ -221,6 +242,12 @@ export default function Home() {
         }
         setNewSymbolChoices(choices);
         setNewSymbolTypes(types);
+
+        const currencies: Record<string, string> = {};
+        for (const r of data.rows as any[]) {
+          if (!r.error && !(r.symbol in currencies)) currencies[r.symbol] = r.currency || 'TRY';
+        }
+        setImportCurrencies(currencies);
       }
     } catch {
       setImportError('Dosya yüklenemedi.');
@@ -253,6 +280,7 @@ export default function Home() {
         quantity: r.quantity,
         price: r.price,
         date: r.date,
+        currency: importCurrencies[r.symbol] || r.currency || 'TRY',
       }));
 
     if (toInsert.length > 0) await supabase.from("transactions").insert(toInsert);
@@ -260,6 +288,7 @@ export default function Home() {
     setImportRows(null);
     setNewSymbolChoices({});
     setNewSymbolTypes({});
+    setImportCurrencies({});
     setImportBusy(false);
     fetchData();
     alert(`${toInsert.length} işlem içe aktarıldı.`);
@@ -284,28 +313,69 @@ export default function Home() {
   // Her satışta, o ana kadarki ortalama maliyet üzerinden satılan kısım
   // totalCost'tan düşülür ve realize edilmiş K/Z ayrıca biriktirilir.
   // NOT: transactions kronolojik sırada gelmeli (bkz. fetchData'daki .order()).
+  // İşlem fiyatı kendi para biriminde saklanıyor (Midas ABD hisselerini USD kaydediyor).
+  // Maliyeti hem TL hem USD bazında hesaplayabilmek için her işlemi, o günün
+  // USD/TRY kuruyla iki para birimine de çeviriyoruz. Hafta sonu/tatil günlerinde
+  // kur yayınlanmadığı için en yakın önceki güne düşülür.
+  const rateOn = (date: string): number | null => {
+    if (!date) return null;
+    if (fxRates[date]) return fxRates[date];
+    const earlier = Object.keys(fxRates).filter(d => d <= date).sort();
+    if (earlier.length > 0) return fxRates[earlier[earlier.length - 1]];
+    return null;
+  };
+
+  const txPrices = (tx: any): { tl: number; usd: number } | null => {
+    const price = Number(tx.price);
+    const currency = (tx.currency || 'TRY').toUpperCase();
+    if (currency === 'TRY') {
+      const rate = rateOn(tx.date);
+      return { tl: price, usd: rate ? price / rate : 0 };
+    }
+    if (currency === 'USD') {
+      const rate = rateOn(tx.date);
+      return { tl: rate ? price * rate : 0, usd: price };
+    }
+    return null;
+  };
+
   const portfolio = assets.map(asset => {
     const assetTx = transactions.filter(tx => tx.asset_id === asset.id);
-    let totalQty = 0, totalCost = 0, realizedPL = 0;
+    let totalQty = 0;
+    let totalCost = 0, realizedPL = 0;          // TL bazlı (kur etkisi dahil)
+    let totalCostUSD = 0, realizedPLUSD = 0;    // USD bazlı (kur etkisi hariç)
+
     assetTx.forEach(tx => {
       const qty = Number(tx.quantity);
-      const txPrice = Number(tx.price);
+      const prices = txPrices(tx);
+      if (!prices) return;
+
       if (tx.type === 'buy') {
         totalQty += qty;
-        totalCost += qty * txPrice;
+        totalCost += qty * prices.tl;
+        totalCostUSD += qty * prices.usd;
       } else if (tx.type === 'sell') {
-        const avgCostBeforeSale = totalQty > 0 ? totalCost / totalQty : 0;
+        const avgTL = totalQty > 0 ? totalCost / totalQty : 0;
+        const avgUSD = totalQty > 0 ? totalCostUSD / totalQty : 0;
         const sellQty = Math.min(qty, totalQty); // negatife düşmeyi engeller
-        realizedPL += (txPrice - avgCostBeforeSale) * sellQty;
-        totalCost -= avgCostBeforeSale * sellQty;
+        realizedPL += (prices.tl - avgTL) * sellQty;
+        realizedPLUSD += (prices.usd - avgUSD) * sellQty;
+        totalCost -= avgTL * sellQty;
+        totalCostUSD -= avgUSD * sellQty;
         totalQty -= sellQty;
       }
     });
+
     const avgCost = totalQty > 0 ? (totalCost / totalQty) : 0;
     const currentPrice = currentPrices[asset.id] || 0;
     const currentPriceUSD = currentPricesUSD[asset.id] || 0;
     const unrealizedPL = (totalQty * currentPrice) - totalCost;
-    return { ...asset, totalQty, avgCost, currentPrice, currentPriceUSD, currentTotalValue: totalQty * currentPrice, unrealizedPL, realizedPL };
+    const unrealizedPLUSD = (totalQty * currentPriceUSD) - totalCostUSD;
+    return {
+      ...asset, totalQty, avgCost, currentPrice, currentPriceUSD,
+      currentTotalValue: totalQty * currentPrice,
+      unrealizedPL, realizedPL, unrealizedPLUSD, realizedPLUSD,
+    };
   }).filter(item => item.totalQty > 0 || item.realizedPL !== 0);
 
   const totalValue = portfolio.reduce((acc, i) => acc + (i.totalQty * i.currentPrice), 0);
@@ -313,6 +383,7 @@ export default function Home() {
   const totalUnrealizedPL = portfolio.reduce((acc, i) => acc + i.unrealizedPL, 0);
   const totalRealizedPL = portfolio.reduce((acc, i) => acc + i.realizedPL, 0);
   const totalPL = totalUnrealizedPL + totalRealizedPL;
+  const totalPLUSD = portfolio.reduce((acc, i) => acc + i.unrealizedPLUSD + i.realizedPLUSD, 0);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8 font-sans">
@@ -327,6 +398,10 @@ export default function Home() {
             <div className="text-xs text-gray-400 mt-1">
               Anlık: <span className={totalUnrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}>{totalUnrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</span>
               {'  ·  '}Realize: <span className={totalRealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}>{totalRealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</span>
+            </div>
+            <div className="text-xs text-gray-400 mt-1 pt-1 border-t border-gray-700">
+              USD bazlı K/Z: <span className={totalPLUSD >= 0 ? 'text-green-400' : 'text-red-400'}>{totalPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</span>
+              <span className="text-gray-500"> (kur etkisi hariç)</span>
             </div>
           </div>
         </header>
@@ -507,11 +582,21 @@ export default function Home() {
                       )}
                       <div className="text-xs text-gray-400 mt-1">≈ ${item.currentPriceUSD.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
                     </td>
-                    <td className={`p-4 font-bold ${item.unrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {item.unrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+                    <td className="p-4">
+                      <div className={`font-bold ${item.unrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {item.unrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {item.unrealizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
+                      </div>
                     </td>
-                    <td className={`p-4 font-bold ${item.realizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {item.realizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+                    <td className="p-4">
+                      <div className={`font-bold ${item.realizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {item.realizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {item.realizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -566,6 +651,31 @@ export default function Home() {
                 </div>
               )}
 
+              {Object.keys(importCurrencies).length > 0 && (
+                <div className="bg-gray-900/50 border border-gray-700 rounded p-3">
+                  <div className="font-bold text-sm mb-1">Para birimleri</div>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Fiyatların hangi para biriminde olduğunu kontrol et. Yanlış seçim maliyeti tamamen bozar
+                    (ör. ABD hisseleri genelde USD, BIST hisseleri TRY).
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.keys(importCurrencies).sort().map(sym => (
+                      <div key={sym} className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded px-2 py-1">
+                        <span className="font-bold text-sm">{sym}</span>
+                        <select
+                          value={importCurrencies[sym]}
+                          onChange={(e) => setImportCurrencies(prev => ({ ...prev, [sym]: e.target.value }))}
+                          className="p-1 rounded bg-gray-700 border border-gray-600 text-xs"
+                        >
+                          <option value="TRY">TRY ₺</option>
+                          <option value="USD">USD $</option>
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-900/50 text-gray-400">
                   <tr><th className="p-2">Satır</th><th className="p-2">Sembol</th><th className="p-2">İşlem</th><th className="p-2">Adet</th><th className="p-2">Fiyat</th><th className="p-2">Tarih</th></tr>
@@ -577,7 +687,12 @@ export default function Home() {
                       <td className="p-2 font-bold">{r.symbol}</td>
                       <td className="p-2">{r.type === 'buy' ? 'Alım' : 'Satım'}</td>
                       <td className="p-2">{r.quantity}</td>
-                      <td className="p-2">{r.price}</td>
+                      <td className="p-2">
+                        {r.price}
+                        <span className="text-gray-500 ml-1">
+                          {(importCurrencies[r.symbol] || r.currency) === 'USD' ? '$' : '₺'}
+                        </span>
+                      </td>
                       <td className="p-2">{r.error ? r.error : r.date}</td>
                     </tr>
                   ))}

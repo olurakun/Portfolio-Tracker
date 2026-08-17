@@ -8,6 +8,7 @@ export type ParsedRow = {
   quantity: number;
   price: number;
   date: string;
+  currency: string;
   error?: string;
 };
 
@@ -17,7 +18,22 @@ const HEADER_ALIASES: Record<string, string[]> = {
   quantity: ['adet', 'miktar', 'quantity', 'lot', 'qty'],
   price: ['fiyat', 'price', 'birim fiyat', 'birim fiyatı', 'birim fiyati', 'tutar/adet'],
   date: ['tarih', 'date', 'işlem tarihi', 'islem tarihi'],
+  currency: ['para birimi', 'parabirimi', 'currency', 'döviz', 'doviz', 'kur', 'birim'],
 };
+
+// Fiyatın hangi para biriminde olduğu kritik: ABD hisseleri USD, BIST hisseleri TRY
+// cinsinden işlem görüyor ve ikisi karıştırılırsa maliyet tamamen yanlış çıkıyor.
+const CURRENCY_ALIASES: Record<string, string> = {
+  'tl': 'TRY', 'try': 'TRY', '₺': 'TRY', 'turk lirasi': 'TRY', 'türk lirası': 'TRY',
+  'usd': 'USD', '$': 'USD', 'dolar': 'USD', 'amerikan dolari': 'USD', 'abd dolari': 'USD',
+};
+
+function parseCurrency(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const clean = fold(value).replace(/[^a-z₺$]/g, '');
+  if (!clean) return null;
+  return CURRENCY_ALIASES[clean] ?? null;
+}
 
 // JS'in varsayılan toLowerCase'i Türkçe'de bozuk sonuç verir ("İ" → noktalı i,
 // "I" → "i" ama "ı" beklenir). Karşılaştırmadan önce Türkçe harfleri ASCII'ye katlarız.
@@ -156,6 +172,10 @@ function gridToRows(grid: unknown[][]): { rows: ParsedRow[]; missingColumns: str
     const quantity = parseNumber(cells[columnIndex.quantity]);
     const price = parseNumber(cells[columnIndex.price]);
     const date = parseDate(cells[columnIndex.date] instanceof Date ? cells[columnIndex.date] : (cells[columnIndex.date] ?? '').toString());
+    // Para birimi sütunu yoksa TRY varsayılır; kullanıcı önizlemede sembol bazında değiştirebilir.
+    const currency = 'currency' in columnIndex
+      ? parseCurrency((cells[columnIndex.currency] ?? '').toString())
+      : null;
 
     const problems: string[] = [];
     if (!type) problems.push('işlem tipi okunamadı');
@@ -170,6 +190,7 @@ function gridToRows(grid: unknown[][]): { rows: ParsedRow[]; missingColumns: str
       quantity: quantity ?? 0,
       price: price ?? 0,
       date: date ?? '',
+      currency: currency ?? 'TRY',
       error: problems.length > 0 ? problems.join(', ') : undefined,
     });
   }
