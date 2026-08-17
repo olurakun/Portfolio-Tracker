@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import PortfolioChart from "./components/PortfolioChart";
 
 export default function Home() {
   const [assets, setAssets] = useState<any[]>([]);
@@ -512,6 +513,10 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {!isHistorical && (
+          <PortfolioChart assets={assets} transactions={transactions} fxRates={fxRates} />
+        )}
 
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-8 flex flex-wrap items-end gap-3">
           <div>
