@@ -18,6 +18,17 @@ export default function Home() {
   const [asOfPricesUSD, setAsOfPricesUSD] = useState<Record<string, number>>({});
   const [asOfLoading, setAsOfLoading] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  // İşlem girme modalı — portföy satırlarındaki Al/Sat butonlarıyla önceden doldurulmuş açılır.
+  const [txModalOpen, setTxModalOpen] = useState(false);
+
+  const openTxModal = (assetId: string, kind: 'buy' | 'sell' | 'dividend') => {
+    setSelectedAssetId(assetId);
+    setTxType(kind);
+    setQuantity("");
+    setPrice("");
+    setTxDate(new Date().toISOString().slice(0, 10));
+    setTxModalOpen(true);
+  };
 
   // Form State'leri
   const [symbol, setSymbol] = useState("");
@@ -151,7 +162,9 @@ export default function Home() {
       price: Number(price),
       date: txDate,
     }]);
-    setQuantity(""); setPrice(""); setTxDate(new Date().toISOString().slice(0, 10)); fetchData();
+    setQuantity(""); setPrice(""); setTxDate(new Date().toISOString().slice(0, 10));
+    setTxModalOpen(false);
+    fetchData();
   };
 
   // Belirli bir tarih aralığındaki portföy değer değişimini hesaplar:
@@ -585,26 +598,6 @@ export default function Home() {
                 )}
              </form>
 
-             <form onSubmit={addTransaction} className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
-                <h2 className="font-bold text-lg mb-2 text-green-400">İşlem Gir</h2>
-                <select onChange={(e) => setSelectedAssetId(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600">{assets.map(a => <option key={a.id} value={a.id}>{a.symbol}</option>)}</select>
-                <div className="flex gap-2">
-                    <button type="button" onClick={() => setTxType('buy')} className={`flex-1 py-1 rounded text-sm ${txType==='buy' ? 'bg-green-600' : 'bg-gray-700'}`}>Alım</button>
-                    <button type="button" onClick={() => setTxType('sell')} className={`flex-1 py-1 rounded text-sm ${txType==='sell' ? 'bg-red-600' : 'bg-gray-700'}`}>Satım</button>
-                    <button type="button" onClick={() => setTxType('dividend')} className={`flex-1 py-1 rounded text-sm ${txType==='dividend' ? 'bg-blue-600' : 'bg-gray-700'}`}>Temettü</button>
-                </div>
-                {txType === 'dividend' ? (
-                  <input type="number" step="any" placeholder="Net temettü tutarı (toplam)" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
-                ) : (
-                  <>
-                    <input type="number" step="any" placeholder="Adet" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
-                    <input type="number" step="any" placeholder="Fiyat" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
-                  </>
-                )}
-                <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
-                <button type="submit" className="w-full bg-green-600 py-2 rounded font-bold">Kaydet</button>
-             </form>
-
              <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
                 <h2 className="font-bold text-lg text-orange-400">İşlem İçe Aktar</h2>
                 <p className="text-xs text-gray-400">
@@ -663,6 +656,7 @@ export default function Home() {
                   <th className="p-4">Pay</th>
                   <th className="p-4">Anlık K/Z</th>
                   <th className="p-4">Realize K/Z</th>
+                  <th className="p-4"></th>
                 </tr>
               </thead>
               <tbody>
@@ -719,11 +713,32 @@ export default function Home() {
                         {item.realizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
                       </div>
                     </td>
+                    <td className="p-4">
+                      {!isHistorical && (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => openTxModal(item.id, 'buy')}
+                            title={`${item.symbol} al`}
+                            className="px-2.5 py-1 rounded text-xs font-bold bg-green-600/20 text-green-400 hover:bg-green-600 hover:text-white transition-colors"
+                          >Al</button>
+                          <button
+                            onClick={() => openTxModal(item.id, 'sell')}
+                            title={`${item.symbol} sat`}
+                            className="px-2.5 py-1 rounded text-xs font-bold bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white transition-colors"
+                          >Sat</button>
+                          <button
+                            onClick={() => openTxModal(item.id, 'dividend')}
+                            title={`${item.symbol} temettü gir`}
+                            className="px-2.5 py-1 rounded text-xs font-bold bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white transition-colors"
+                          >₺</button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
 
                 {openPositions.length === 0 && (
-                  <tr><td colSpan={7} className="p-8 text-center text-gray-500">
+                  <tr><td colSpan={8} className="p-8 text-center text-gray-500">
                     {isHistorical ? `${asOfDate} tarihinde açık pozisyon yok.` : 'Açık pozisyon yok.'}
                   </td></tr>
                 )}
@@ -745,11 +760,12 @@ export default function Home() {
                       {totalRealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
                     </div>
                   </td>
+                  <td className="p-4"></td>
                 </tr>
 
                 {closedPositions.length > 0 && (
                   <tr>
-                    <td colSpan={7} className="p-0">
+                    <td colSpan={8} className="p-0">
                       <button
                         onClick={() => setShowClosed(s => !s)}
                         className="w-full text-left px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-gray-700/40 transition-colors"
@@ -776,6 +792,15 @@ export default function Home() {
                         {item.realizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
                       </div>
                     </td>
+                    <td className="p-4">
+                      {!isHistorical && (
+                        <button
+                          onClick={() => openTxModal(item.id, 'buy')}
+                          title={`${item.symbol} al`}
+                          className="px-2.5 py-1 rounded text-xs font-bold bg-green-600/20 text-green-400 hover:bg-green-600 hover:text-white transition-colors"
+                        >Al</button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -783,6 +808,56 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {txModalOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50" onClick={() => setTxModalOpen(false)}>
+          <form
+            onSubmit={addTransaction}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-md p-6 space-y-3"
+          >
+            <div className="flex justify-between items-center">
+              <h2 className="font-bold text-lg text-green-400">
+                {assets.find(a => String(a.id) === String(selectedAssetId))?.symbol ?? 'İşlem'} — İşlem Gir
+              </h2>
+              <button type="button" onClick={() => setTxModalOpen(false)} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
+            </div>
+
+            <select
+              value={selectedAssetId}
+              onChange={(e) => setSelectedAssetId(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700 border border-gray-600"
+            >
+              {assets.map(a => <option key={a.id} value={a.id}>{a.symbol}</option>)}
+            </select>
+
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setTxType('buy')} className={`flex-1 py-1.5 rounded text-sm ${txType==='buy' ? 'bg-green-600' : 'bg-gray-700'}`}>Alım</button>
+              <button type="button" onClick={() => setTxType('sell')} className={`flex-1 py-1.5 rounded text-sm ${txType==='sell' ? 'bg-red-600' : 'bg-gray-700'}`}>Satım</button>
+              <button type="button" onClick={() => setTxType('dividend')} className={`flex-1 py-1.5 rounded text-sm ${txType==='dividend' ? 'bg-blue-600' : 'bg-gray-700'}`}>Temettü</button>
+            </div>
+
+            {txType === 'sell' && (
+              <div className="text-xs text-gray-400">Elinizdeki adet: {getHeldQty(selectedAssetId).toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</div>
+            )}
+
+            {txType === 'dividend' ? (
+              <input type="number" step="any" placeholder="Net temettü tutarı (toplam)" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required autoFocus />
+            ) : (
+              <>
+                <input type="number" step="any" placeholder="Adet" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required autoFocus />
+                <input type="number" step="any" placeholder="Fiyat" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+              </>
+            )}
+            <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={() => setTxModalOpen(false)} className="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600">İptal</button>
+              <button type="submit" className={`flex-1 py-2 rounded font-bold ${txType==='sell' ? 'bg-red-600 hover:bg-red-700' : txType==='dividend' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}>Kaydet</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {importRows && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
