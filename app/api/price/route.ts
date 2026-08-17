@@ -6,6 +6,17 @@ const DEFAULT_HEADERS = {
 
 const TROY_OUNCE_IN_GRAMS = 31.1034768;
 
+// Değerli madenler Yahoo'da vadeli işlem sözleşmesi olarak (USD/ons) fiyatlanıyor.
+// Türkiye'de gram üzerinden alım satım yaygın olduğu için hem gram hem ons
+// varyantını ayrı sembol olarak sunuyoruz; sonek taşımayan sembol (XAU/XAG)
+// gram anlamına gelir ve geriye dönük uyumluluk için öyle kalmalıdır.
+const METAL_SPECS: Record<string, { ticker: string; perGram: boolean }> = {
+  XAU: { ticker: 'GC=F', perGram: true },
+  XAG: { ticker: 'SI=F', perGram: true },
+  XAUOZ: { ticker: 'GC=F', perGram: false },
+  XAGOZ: { ticker: 'SI=F', perGram: false },
+};
+
 // Portföyün ana para birimi — her şey bu birime çevrilip gösteriliyor.
 // Ana para birimi kendi cinsinden her zaman 1 birim eder (1 TL = 1 TL), bu yüzden
 // nakit olarak tutulan bakiye için dış servise sorulmaz.
@@ -193,14 +204,15 @@ async function getCurrentPrice(symbol: string, type: string | null) {
     return NextResponse.json({ price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 });
   }
 
-  // 2. DEĞERLİ MADEN — Yahoo vadeli işlem fiyatları (USD/ons) gram'a çevrilip TRY karşılığı hesaplanır
+  // 2. DEĞERLİ MADEN — Yahoo vadeli işlem fiyatları (USD/ons); sembol gram varyantıysa grama çevrilir
   if (type === "metal") {
-    const futuresTicker = symbol === "XAU" ? "GC=F" : symbol === "XAG" ? "SI=F" : null;
-    if (!futuresTicker) return NextResponse.json({ price: 0, priceUSD: 0 });
-    const ozPriceUSD = await fetchYahooPrice(futuresTicker);
-    const gramPriceUSD = ozPriceUSD !== null ? ozPriceUSD / TROY_OUNCE_IN_GRAMS : null;
-    const gramPriceTRY = gramPriceUSD !== null && usdTryRate !== null ? gramPriceUSD * usdTryRate : null;
-    return NextResponse.json({ price: gramPriceTRY ?? 0, priceUSD: gramPriceUSD ?? 0 });
+    const spec = METAL_SPECS[symbol];
+    if (!spec) return NextResponse.json({ price: 0, priceUSD: 0 });
+    const ozPriceUSD = await fetchYahooPrice(spec.ticker);
+    if (ozPriceUSD === null) return NextResponse.json({ price: 0, priceUSD: 0 });
+    const priceUSD = spec.perGram ? ozPriceUSD / TROY_OUNCE_IN_GRAMS : ozPriceUSD;
+    const priceTRY = usdTryRate !== null ? priceUSD * usdTryRate : null;
+    return NextResponse.json({ price: priceTRY ?? 0, priceUSD });
   }
 
   // 3. FONLAR - TEFAS Doğrudan Erişim (şu an sadece TR fonları destekleniyor, her zaman TRY)
@@ -234,12 +246,13 @@ async function getHistoricalPrice(symbol: string, type: string | null, date: str
 
   // 2. DEĞERLİ MADEN
   if (type === "metal") {
-    const futuresTicker = symbol === "XAU" ? "GC=F" : symbol === "XAG" ? "SI=F" : null;
-    if (!futuresTicker) return NextResponse.json({ price: 0, priceUSD: 0 });
-    const quote = await fetchYahooHistoricalQuote(futuresTicker, date);
-    const gramPriceUSD = quote !== null ? quote.price / TROY_OUNCE_IN_GRAMS : null;
-    const gramPriceTRY = gramPriceUSD !== null && usdTryRate !== null ? gramPriceUSD * usdTryRate : null;
-    return NextResponse.json({ price: gramPriceTRY ?? 0, priceUSD: gramPriceUSD ?? 0 });
+    const spec = METAL_SPECS[symbol];
+    if (!spec) return NextResponse.json({ price: 0, priceUSD: 0 });
+    const quote = await fetchYahooHistoricalQuote(spec.ticker, date);
+    if (quote === null) return NextResponse.json({ price: 0, priceUSD: 0 });
+    const priceUSD = spec.perGram ? quote.price / TROY_OUNCE_IN_GRAMS : quote.price;
+    const priceTRY = usdTryRate !== null ? priceUSD * usdTryRate : null;
+    return NextResponse.json({ price: priceTRY ?? 0, priceUSD });
   }
 
   // 3. FONLAR
