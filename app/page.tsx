@@ -43,6 +43,15 @@ export default function Home() {
 
   useEffect(() => { fetchData(); }, []);
 
+  // Varlık listesi geldiğinde (ve yeni varlık eklendiğinde) fiyatları kendiliğinden çeker;
+  // böylece sayfa yenilendiğinde kullanıcının butona basması gerekmiyor. Bağımlılık
+  // id listesi olduğu için sadece işlem eklemek yeniden çekmeyi tetiklemez.
+  const assetIdsKey = assets.map(a => a.id).join(',');
+  useEffect(() => {
+    if (assetIdsKey) fetchPrices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetIdsKey]);
+
   // Arama kutusuna yazıldıkça (debounce'lu) /api/search'ü çağırır
   useEffect(() => {
     if (searchQuery.trim().length < 2) { setSearchResults([]); return; }
@@ -161,17 +170,26 @@ export default function Home() {
     setRangeLoading(false);
   };
 
+  // Tüm varlıkların fiyatı paralel çekilir — sıralı beklemek varlık sayısıyla
+  // doğru orantılı yavaşlıyordu ve sayfa açılışındaki otomatik yüklemeyi kullanılamaz kılıyordu.
   const fetchPrices = async () => {
+    if (assets.length === 0) return;
     setLoading(true);
-    const newPrices: Record<string, number> = {};
-    const newPricesUSD: Record<string, number> = {};
-    for (const asset of assets) {
+    const results = await Promise.all(assets.map(async (asset) => {
       try {
         const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&_=${Date.now()}`);
         const data = await res.json();
-        newPrices[asset.id] = data.price || 0;
-        newPricesUSD[asset.id] = data.priceUSD || 0;
-      } catch { newPrices[asset.id] = 0; newPricesUSD[asset.id] = 0; }
+        return { id: asset.id, price: data.price || 0, priceUSD: data.priceUSD || 0 };
+      } catch {
+        return { id: asset.id, price: 0, priceUSD: 0 };
+      }
+    }));
+
+    const newPrices: Record<string, number> = {};
+    const newPricesUSD: Record<string, number> = {};
+    for (const r of results) {
+      newPrices[r.id] = r.price;
+      newPricesUSD[r.id] = r.priceUSD;
     }
     setCurrentPrices(newPrices);
     setCurrentPricesUSD(newPricesUSD);
@@ -437,7 +455,27 @@ export default function Home() {
           <div className="xl:col-span-3 bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="font-bold text-lg text-purple-400">Portföy</h2>
-                <button onClick={fetchPrices} className="bg-gray-700 px-4 py-2 rounded hover:bg-gray-600">{loading ? "Yükleniyor..." : "🔄 Fiyatları Yenile"}</button>
+                <button
+                  onClick={fetchPrices}
+                  disabled={loading}
+                  title="Fiyatları yenile"
+                  aria-label="Fiyatları yenile"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:hover:bg-transparent"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`}
+                  >
+                    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                    <polyline points="21 3 21 9 15 9" />
+                  </svg>
+                </button>
             </div>
             <table className="w-full text-left">
               <thead className="bg-gray-900/50 text-gray-400 text-sm">
