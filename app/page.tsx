@@ -4,8 +4,14 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity } from "../lib/portfolio";
+import AuthGate from "./components/AuthGate";
+import type { Session } from "@supabase/supabase-js";
 
-export default function Home() {
+export default function Page() {
+  return <AuthGate>{(session) => <Home session={session} />}</AuthGate>;
+}
+
+function Home({ session }: { session: Session }) {
   const [assets, setAssets] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [currentPrices, setCurrentPrices] = useState<Record<string, number>>({});
@@ -410,7 +416,17 @@ export default function Home() {
     <div className="min-h-screen bg-gray-900 text-white p-8 font-sans">
       <div className="max-w-[1400px] mx-auto">
         <header className="flex justify-between items-center mb-10">
-          <h1 className="text-4xl font-bold">Portföy Takip</h1>
+          <div>
+            <h1 className="text-4xl font-bold">Portföy Takip</h1>
+            <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+              <span>{session.user.email}</span>
+              <span>·</span>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                className="underline hover:text-white"
+              >Çıkış yap</button>
+            </div>
+          </div>
           <div className={`p-4 rounded-xl border shadow-xl text-right ${isHistorical ? 'bg-amber-950/40 border-amber-700/60' : 'bg-gray-800 border-gray-700'}`}>
             <div className="text-gray-400 text-sm uppercase">
               {isHistorical ? `${asOfDate} Tarihindeki Değer` : 'Toplam Değer'}
