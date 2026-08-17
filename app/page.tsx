@@ -417,6 +417,12 @@ export default function Home() {
                   CSV veya Excel (.xlsx). Başlık satırında şu sütunlar olmalı:{' '}
                   <span className="text-gray-300">Sembol, İşlem, Adet, Fiyat, Tarih</span>
                 </p>
+                <a
+                  href="/api/template"
+                  className="inline-block text-xs text-orange-400 underline hover:text-orange-300"
+                >
+                  ⬇ Excel şablonunu indir
+                </a>
                 <input
                   type="file"
                   accept=".csv,.xlsx,.xlsm,.txt"
