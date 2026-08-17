@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import PortfolioChart from "./components/PortfolioChart";
+import { computePosition, convertTxPrice, heldQuantity } from "../lib/portfolio";
 
 export default function Home() {
   const [assets, setAssets] = useState<any[]>([]);
@@ -67,7 +68,7 @@ export default function Home() {
   useEffect(() => { fetchData(); }, []);
 
   // İşlemlerin kapsadığı tüm tarih aralığının USD/TRY kurunu tek çağrıda alır.
-  // Maliyetin USD karşılığı bu kurlarla hesaplanıyor (bkz. txPrices).
+  // Maliyetin USD karşılığı bu kurlarla hesaplanıyor (bkz. lib/portfolio.ts).
   const txDateSpan = transactions.length > 0
     ? `${transactions[0]?.date ?? ''}|${transactions[transactions.length - 1]?.date ?? ''}`
     : '';
@@ -136,15 +137,8 @@ export default function Home() {
     setSymbol(""); setName(""); setType("stock"); setSearchQuery(""); setSearchResults([]); fetchData();
   };
 
-  const getHeldQty = (assetId: string) => {
-    return transactions
-      .filter(tx => tx.asset_id === assetId)
-      .reduce((qty, tx) => {
-        if (tx.type === 'buy') return qty + Number(tx.quantity);
-        if (tx.type === 'sell') return qty - Number(tx.quantity);
-        return qty; // temettü adedi değiştirmez
-      }, 0);
-  };
+  const getHeldQty = (assetId: string) =>
+    heldQuantity(transactions.filter(tx => tx.asset_id === assetId));
 
   const addTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,7 +178,7 @@ export default function Home() {
 
       for (const tx of assetTx) {
         const qty = Number(tx.quantity);
-        const prices = txPrices(tx);
+        const prices = convertTxPrice(tx, fxRates);
         if (!prices) continue;
         const txPrice = prices.tl;
         // Temettü adedi değiştirmez ama dönem içindeyse nakit girişi sayılır.
@@ -375,31 +369,8 @@ export default function Home() {
   // Maliyeti hem TL hem USD bazında hesaplayabilmek için her işlemi, o günün
   // USD/TRY kuruyla iki para birimine de çeviriyoruz. Hafta sonu/tatil günlerinde
   // kur yayınlanmadığı için en yakın önceki güne düşülür.
-  const rateOn = (date: string): number | null => {
-    if (!date) return null;
-    if (fxRates[date]) return fxRates[date];
-    const earlier = Object.keys(fxRates).filter(d => d <= date).sort();
-    if (earlier.length > 0) return fxRates[earlier[earlier.length - 1]];
-    return null;
-  };
-
-  const txPrices = (tx: any): { tl: number; usd: number } | null => {
-    const price = Number(tx.price);
-    const currency = (tx.currency || 'TRY').toUpperCase();
-    if (currency === 'TRY') {
-      const rate = rateOn(tx.date);
-      return { tl: price, usd: rate ? price / rate : 0 };
-    }
-    if (currency === 'USD') {
-      const rate = rateOn(tx.date);
-      return { tl: rate ? price * rate : 0, usd: price };
-    }
-    return null;
-  };
-
-  // Maliyet FIFO (ilk giren ilk çıkar) yöntemiyle hesaplanıyor: her alım ayrı bir lot
-  // olarak kuyruğa girer, satışta en eski lottan düşülür. Midas ekstresi de bu yöntemi
-  // kullanıyor, böylece rakamlar ekstreyle birebir tutuyor.
+  // Finansal matematik lib/portfolio.ts'te ve testleri var (lib/portfolio.test.ts).
+  // Burada tekrar yazılmamalı — kopyalanan mantık testlerin koruması dışında kalır.
   // Geçmiş tarih seçiliyse hem işlemler o tarihe kadar kesilir hem de o günün
   // fiyatları kullanılır; böylece tablo o tarihteki portföyün fotoğrafını gösterir.
   const isHistorical = asOfDate !== "";
@@ -409,39 +380,10 @@ export default function Home() {
   const portfolio = assets.map(asset => {
     const assetTx = transactions.filter(tx =>
       tx.asset_id === asset.id && (!isHistorical || tx.date <= asOfDate));
-    const lots: { qty: number; tl: number; usd: number }[] = [];
-    let realizedPL = 0;      // TL bazlı (kur etkisi dahil)
-    let realizedPLUSD = 0;   // USD bazlı (kur etkisi hariç)
 
-    assetTx.forEach(tx => {
-      const qty = Number(tx.quantity);
-      const prices = txPrices(tx);
-      if (!prices) return;
+    const { totalQty, totalCost, totalCostUSD, avgCost, realizedPL, realizedPLUSD } =
+      computePosition(assetTx, fxRates);
 
-      if (tx.type === 'buy') {
-        lots.push({ qty, tl: prices.tl, usd: prices.usd });
-      } else if (tx.type === 'sell') {
-        let remaining = qty;
-        while (remaining > 1e-9 && lots.length > 0) {
-          const lot = lots[0];
-          const take = Math.min(remaining, lot.qty);
-          realizedPL += (prices.tl - lot.tl) * take;
-          realizedPLUSD += (prices.usd - lot.usd) * take;
-          lot.qty -= take;
-          remaining -= take;
-          if (lot.qty <= 1e-9) lots.shift();
-        }
-      } else if (tx.type === 'dividend') {
-        // Temettüde adet değişmez; tutar doğrudan gerçekleşmiş gelir olarak eklenir.
-        realizedPL += qty * prices.tl;
-        realizedPLUSD += qty * prices.usd;
-      }
-    });
-
-    const totalQty = lots.reduce((s, l) => s + l.qty, 0);
-    const totalCost = lots.reduce((s, l) => s + l.qty * l.tl, 0);
-    const totalCostUSD = lots.reduce((s, l) => s + l.qty * l.usd, 0);
-    const avgCost = totalQty > 0 ? (totalCost / totalQty) : 0;
     const currentPrice = viewPrices[asset.id] || 0;
     const currentPriceUSD = viewPricesUSD[asset.id] || 0;
     const unrealizedPL = (totalQty * currentPrice) - totalCost;
