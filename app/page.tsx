@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import PortfolioChart from "./components/PortfolioChart";
-import { computePosition, convertTxPrice, heldQuantity } from "../lib/portfolio";
+import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
 import AuthGate from "./components/AuthGate";
 import type { Session } from "@supabase/supabase-js";
 
@@ -328,6 +328,20 @@ function Home({ session }: { session: Session }) {
     fetchData();
     alert(`${toInsert.length} işlem içe aktarıldı.`);
   };
+
+  // Dosyadaki satışlar mevcut pozisyonla birleştiğinde adedi negatife düşürüyorsa,
+  // o sembolün geçmiş alımları dosyada eksik demektir. Onaydan önce uyarılır —
+  // fark edilmezse maliyet ve kâr/zarar sessizce yanlış hesaplanır.
+  const importNegatives = (() => {
+    if (!importRows) return [];
+    const existing: Record<string, number> = {};
+    for (const asset of assets) {
+      existing[asset.symbol.toUpperCase()] = heldQuantity(
+        transactions.filter(tx => tx.asset_id === asset.id)
+      );
+    }
+    return findNegativePositions(existing, importRows.filter(r => !r.error));
+  })();
 
   const cancelImport = () => {
     setImportRows(null);
@@ -831,6 +845,31 @@ function Home({ session }: { session: Session }) {
                 {importRows.filter(r => !r.error).length} geçerli satır
                 {importRows.some(r => r.error) && `, ${importRows.filter(r => r.error).length} hatalı satır (atlanacak)`}
               </p>
+
+              {importNegatives.length > 0 && (
+                <div className="mt-3 bg-amber-950/50 border border-amber-700/60 rounded p-3">
+                  <div className="font-bold text-sm text-amber-400">
+                    Bu dosyada geçmiş alımlar eksik görünüyor
+                  </div>
+                  <p className="text-xs text-gray-300 mt-1">
+                    Aşağıdaki sembollerde satış, elindeki ve dosyadaki alımların toplamından fazla.
+                    Bu hâliyle aktarırsan maliyet ve kâr/zarar yanlış hesaplanır.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {importNegatives.map(n => (
+                      <span key={n.symbol} className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1">
+                        <span className="font-bold">{n.symbol}</span>
+                        <span className="text-amber-400 ml-1">
+                          {n.net.toLocaleString('tr-TR', { maximumFractionDigits: 6 })} adet açık
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    Dosyayı tamamlayıp yeniden yüklemen önerilir. Yine de devam edebilirsin.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="overflow-y-auto p-4 space-y-4">

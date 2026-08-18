@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rateOn, convertTxPrice, computePosition, heldQuantity, type Transaction, type FxRates } from './portfolio';
+import { rateOn, convertTxPrice, computePosition, heldQuantity, findNegativePositions, type Transaction, type FxRates } from './portfolio';
 
 // Kurlar gerçek hayatta hafta içi yayınlanır; 16-17'si hafta sonuna denk geliyor.
 const FX: FxRates = {
@@ -239,6 +239,61 @@ describe('computePosition — çift para birimi', () => {
       tx({ quantity: 5, price: 100, currency: 'EUR' }),
     ], FX);
     expect(p.totalQty).toBe(5);
+  });
+});
+
+describe('findNegativePositions', () => {
+  const row = (symbol: string, type: 'buy' | 'sell', quantity: number) => ({ symbol, type, quantity });
+
+  it('dengeli dosyada uyarı üretmez', () => {
+    expect(findNegativePositions({}, [
+      row('THYAO', 'buy', 100),
+      row('THYAO', 'sell', 40),
+    ])).toEqual([]);
+  });
+
+  // Eksik geçmiş alımın imzası: dosyadaki satış, dosyadaki alımdan fazla.
+  it('alımı olmayan satışı yakalar', () => {
+    expect(findNegativePositions({}, [row('TLY', 'sell', 18)]))
+      .toEqual([{ symbol: 'TLY', net: -18 }]);
+  });
+
+  it('portföyde hâlihazırda tutulan adedi hesaba katar', () => {
+    // Elde 20 varken 18 satmak sorun değil.
+    expect(findNegativePositions({ TLY: 20 }, [row('TLY', 'sell', 18)])).toEqual([]);
+    // Elde 10 varken 18 satmak eksik alım demek.
+    expect(findNegativePositions({ TLY: 10 }, [row('TLY', 'sell', 18)]))
+      .toEqual([{ symbol: 'TLY', net: -8 }]);
+  });
+
+  it('yalnızca negatife düşen sembolleri döner', () => {
+    const r = findNegativePositions({}, [
+      row('AAA', 'buy', 5),
+      row('BBB', 'sell', 3),
+      row('CCC', 'buy', 1),
+      row('CCC', 'sell', 4),
+    ]);
+    expect(r.map(x => x.symbol)).toEqual(['BBB', 'CCC']);
+  });
+
+  it('tam sıfıra inen pozisyonu uyarı saymaz', () => {
+    expect(findNegativePositions({}, [
+      row('AAA', 'buy', 5),
+      row('AAA', 'sell', 5),
+    ])).toEqual([]);
+  });
+
+  it('ondalık artıklar yüzünden yanlış uyarı vermez', () => {
+    expect(findNegativePositions({}, [
+      row('UNH', 'buy', 0.351914785),
+      row('UNH', 'sell', 0.351914785),
+    ])).toEqual([]);
+  });
+
+  it('temettü satırları adedi etkilemez', () => {
+    expect(findNegativePositions({}, [
+      { symbol: 'BIMAS', type: 'dividend' as const, quantity: 1 },
+    ])).toEqual([]);
   });
 });
 

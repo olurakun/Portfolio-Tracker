@@ -122,6 +122,38 @@ export function computePosition(transactions: Transaction[], fxRates: FxRates): 
 }
 
 /**
+ * İçe aktarılacak satırlar mevcut pozisyonla birleştiğinde adedi negatife düşüren
+ * sembolleri bulur.
+ *
+ * Negatif adet fiziksel olarak imkânsızdır; pratikte tek bir anlama gelir:
+ * dosyada o sembolün geçmiş ALIMLARI eksik. Bu durumda maliyet ve kâr/zarar
+ * sessizce yanlış hesaplanır, o yüzden onaydan önce uyarılır.
+ *
+ * @param existing Sembol → portföyde hâlihazırda tutulan adet
+ * @param rows     İçe aktarılacak satırlar
+ */
+export function findNegativePositions(
+  existing: Record<string, number>,
+  rows: Array<{ symbol: string; type: TxType; quantity: number | string }>,
+): Array<{ symbol: string; net: number }> {
+  const net: Record<string, number> = {};
+
+  for (const row of rows) {
+    const symbol = row.symbol;
+    if (net[symbol] === undefined) net[symbol] = existing[symbol] ?? 0;
+    const qty = Number(row.quantity);
+    if (!Number.isFinite(qty)) continue;
+    if (row.type === 'buy') net[symbol] += qty;
+    else if (row.type === 'sell') net[symbol] -= qty;
+  }
+
+  return Object.entries(net)
+    .filter(([, n]) => n < -EPSILON)
+    .map(([symbol, n]) => ({ symbol, net: n }))
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+/**
  * Elde tutulan adet. Satış kontrolünde kullanılır; temettü adedi etkilemez.
  */
 export function heldQuantity(transactions: Transaction[]): number {
