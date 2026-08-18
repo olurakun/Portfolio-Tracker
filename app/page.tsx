@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
 import AuthGate from "./components/AuthGate";
+import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
 
 export default function Page() {
@@ -26,6 +27,15 @@ function Home({ session }: { session: Session }) {
   const [asOfPricesUSD, setAsOfPricesUSD] = useState<Record<string, number>>({});
   const [asOfLoading, setAsOfLoading] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  // Varsayılan sıralama: değere göre büyükten küçüğe.
+  const [sortKey, setSortKey] = useState<SortKey>('value');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const toggleSort = (key: SortKey) => {
+    const next = nextSortState({ key: sortKey, dir: sortDir }, key);
+    setSortKey(next.key);
+    setSortDir(next.dir);
+  };
   // İşlem girme modalı — portföy satırlarındaki Al/Sat butonlarıyla önceden doldurulmuş açılır.
   const [txModalOpen, setTxModalOpen] = useState(false);
 
@@ -416,8 +426,8 @@ function Home({ session }: { session: Session }) {
     };
   }).filter(item => item.totalQty > 0 || item.realizedPL !== 0);
 
-  const openPositions = portfolio.filter(i => i.totalQty > 0);
-  const closedPositions = portfolio.filter(i => i.totalQty <= 0);
+  const openPositions = sortPositions(portfolio.filter(i => i.totalQty > 0), sortKey, sortDir);
+  const closedPositions = sortPositions(portfolio.filter(i => i.totalQty <= 0), sortKey, sortDir);
 
   const totalValue = portfolio.reduce((acc, i) => acc + i.value, 0);
   const totalValueUSD = portfolio.reduce((acc, i) => acc + i.valueUSD, 0);
@@ -626,13 +636,14 @@ function Home({ session }: { session: Session }) {
             <table className="w-full text-left">
               <thead className="bg-gray-900/50 text-gray-400 text-sm">
                 <tr>
-                  <th className="p-4">Sembol</th>
-                  <th className="p-4">Adet</th>
-                  <th className="p-4">{isHistorical ? 'O Günkü Fiyat' : 'Güncel Fiyat'}</th>
-                  <th className="p-4">Değer</th>
+                  <SortHeader label="Sembol" sortKey="symbol" active={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Adet" sortKey="totalQty" active={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label={isHistorical ? 'O Günkü Fiyat' : 'Güncel Fiyat'} sortKey="currentPrice" active={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Değer" sortKey="value" active={sortKey} dir={sortDir} onSort={toggleSort} />
+                  {/* Pay, Değer'in portföye oranı — ayrı bir sıralama anahtarı olmaz. */}
                   <th className="p-4">Pay</th>
-                  <th className="p-4">Anlık K/Z</th>
-                  <th className="p-4">Realize K/Z</th>
+                  <SortHeader label="Anlık K/Z" sortKey="unrealizedPL" active={sortKey} dir={sortDir} onSort={toggleSort} />
+                  <SortHeader label="Realize K/Z" sortKey="realizedPL" active={sortKey} dir={sortDir} onSort={toggleSort} />
                   <th className="p-4"></th>
                 </tr>
               </thead>
@@ -965,5 +976,33 @@ function Home({ session }: { session: Session }) {
         </div>
       )}
     </div>
+  );
+}
+function SortHeader({
+  label, sortKey, active, dir, onSort,
+}: {
+  label: string;
+  sortKey: SortKey;
+  active: SortKey;
+  dir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
+  const isActive = active === sortKey;
+  return (
+    <th className="p-0">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        aria-sort={isActive ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+        className={`w-full text-left px-4 py-4 flex items-center gap-1 transition-colors hover:text-white ${isActive ? 'text-white' : ''}`}
+      >
+        {label}
+        {/* Sıralanmayan sütunlarda ok soluk duruyor: tıklanabilir olduğu belli olsun
+            ama aktif sütunla karışmasın. */}
+        <span className={isActive ? 'text-purple-400' : 'text-gray-600'}>
+          {isActive ? (dir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </button>
+    </th>
   );
 }
