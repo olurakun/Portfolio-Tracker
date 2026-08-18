@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
 import AuthGate from "./components/AuthGate";
+import Comparison from "./components/Comparison";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
 
@@ -27,6 +28,7 @@ function Home({ session }: { session: Session }) {
   const [asOfPricesUSD, setAsOfPricesUSD] = useState<Record<string, number>>({});
   const [asOfLoading, setAsOfLoading] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [tab, setTab] = useState<'portfolio' | 'compare'>('portfolio');
   // Varsayılan sıralama: değere göre büyükten küçüğe.
   const [sortKey, setSortKey] = useState<SortKey>('value');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -471,6 +473,24 @@ function Home({ session }: { session: Session }) {
           </div>
         </header>
 
+        <nav className="flex gap-1 border-b border-gray-700 mb-6">
+          {([['portfolio', 'Portföy'], ['compare', 'Karşılaştırma']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              aria-current={tab === key ? 'page' : undefined}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                tab === key
+                  ? 'border-purple-400 text-white'
+                  : 'border-transparent text-gray-400 hover:text-white'
+              }`}
+            >{label}</button>
+          ))}
+        </nav>
+
+        {tab === 'compare' && <Comparison assets={assets} />}
+
+        {tab === 'portfolio' && <>
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4 flex flex-wrap items-end gap-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Portföyü şu tarihe göre göster</label>
@@ -795,6 +815,7 @@ function Home({ session }: { session: Session }) {
             </table>
           </div>
         </div>
+        </>}
       </div>
 
       {txModalOpen && (
