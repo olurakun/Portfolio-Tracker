@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { mergeAndRank, isTickerLike, type SearchResult } from "../../../lib/searchRank";
 
 // Değerli madenler Yahoo aramasında düzgün bulunamıyor: "altın"/"gümüş" hiç sonuç
 // vermiyor, "xau" ise ancak "XAU/ROX" gibi anlamsız isimli bir kur paritesi olarak
@@ -58,33 +59,51 @@ function classify(q: any): { symbol: string; type: string } | null {
   return { symbol: rawSymbol, type: "stock" };
 }
 
+async function yahooSearch(query: string): Promise<SearchResult[]> {
+  const res = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}`, {
+    cache: 'no-store',
+  });
+  const data = await res.json();
+  return (data.quotes || [])
+    .filter((q: any) => q.symbol && q.quoteType)
+    .map((q: any) => {
+      const classified = classify(q);
+      if (!classified) return null;
+      return { symbol: classified.symbol, name: q.longname || q.shortname || q.symbol, type: classified.type };
+    })
+    .filter(Boolean) as SearchResult[];
+}
+
+// BIST sembolleri İngilizce kelimelerle çakışabiliyor: "INFO" araması Yahoo'da
+// Amerikan fonlarını ve "information" geçen her şeyi döndürüyor, Info Yatırım
+// (INFO.IS) listeye hiç girmiyor. Sembol gibi görünen sorgularda ".IS" ile
+// İKİNCİ bir arama yapıp sonucu öne alıyoruz. Birleştirme ve sıralama kuralı
+// lib/searchRank.ts'te ve testleri var.
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q");
 
   if (!query) return NextResponse.json({ results: [] });
 
-  try {
-    const res = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}`, {
-      cache: 'no-store'
-    });
-    const data = await res.json();
+  const trimmed = query.trim();
+  const bistSymbol = isTickerLike(trimmed) ? `${trimmed.toUpperCase()}.IS` : null;
 
-    const yahooResults = (data.quotes || [])
-      .filter((q: any) => q.symbol && q.quoteType)
-      .map((q: any) => {
-        const classified = classify(q);
-        if (!classified) return null;
-        return {
-          symbol: classified.symbol,
-          name: q.longname || q.shortname || q.symbol,
-          type: classified.type,
-        };
-      })
-      .filter(Boolean);
+  try {
+    const [general, bist] = await Promise.all([
+      yahooSearch(trimmed),
+      // ".IS" araması bulunamayan sembollerde bulanık sonuçlar döndürebiliyor;
+      // yalnızca TAM eşleşmeyi kabul ediyoruz ki AAPL araması BIST çöpüyle
+      // dolmasın.
+      bistSymbol
+        ? yahooSearch(bistSymbol).then(rows => rows.filter(r => r.symbol.toUpperCase() === bistSymbol))
+        : Promise.resolve([] as SearchResult[]),
+    ]);
+
+    const ranked = mergeAndRank(bist, general, trimmed);
 
     // Madenler en üstte: aranan şey bir madense kullanıcı onu ilk sırada görmeli.
-    return NextResponse.json({ results: [...matchingMetals(query), ...yahooResults] });
+    return NextResponse.json({ results: [...matchingMetals(query), ...ranked] });
   } catch (error) {
     // Yahoo'ya ulaşılamasa bile sabit maden listesi çalışmaya devam etsin.
     return NextResponse.json({ results: matchingMetals(query) });

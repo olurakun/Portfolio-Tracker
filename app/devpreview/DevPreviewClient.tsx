@@ -4,6 +4,7 @@ import { useState } from "react";
 import PortfolioTable from "../components/PortfolioTable";
 import ImportPreview, { type DupePolicy } from "../components/ImportPreview";
 import ApiKeySettings from "../components/ApiKeySettings";
+import AssetPicker, { type AssetChoice } from "../components/AssetPicker";
 import type { SortKey, SortDir } from "../../lib/sortPositions";
 import * as fx from "./fixtures";
 
@@ -39,6 +40,7 @@ export default function DevPreviewClient() {
   });
   const [choices, setChoices] = useState<Record<string, 'create' | 'skip'>>({ TLY: 'create' });
   const [types, setTypes] = useState<Record<string, string>>({ TLY: 'fund' });
+  const [choice, setChoice] = useState<AssetChoice>({ symbol: '', name: '', type: 'stock' });
 
   const isEmptyCase = tableCase === 'empty' || tableCase === 'loading';
   // Yinelenen bayrakları senaryoya göre: 1. ve 3. satır zaten portföyde varmış gibi.
@@ -86,6 +88,17 @@ export default function DevPreviewClient() {
             onToggleClosed={() => setShowClosed(s => !s)}
             onRefresh={() => {}}
           />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Varlık seçici</h2>
+          <div className="max-w-sm bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
+            {/* Gerçek /api/search'e gider — "INFO" yazıp Info Yatırım'ın çıktığı görülebilir. */}
+            <AssetPicker value={choice} onChange={setChoice} />
+            <div className="text-xs text-gray-500">
+              Seçilen: <code className="text-gray-300">{JSON.stringify(choice)}</code>
+            </div>
+          </div>
         </section>
 
         <section className="space-y-3">

@@ -11,6 +11,7 @@ import TransactionsTab from "./components/TransactionsTab";
 import ApiKeySettings from "./components/ApiKeySettings";
 import PortfolioTable from "./components/PortfolioTable";
 import ImportPreview from "./components/ImportPreview";
+import AssetPicker, { type AssetChoice } from "./components/AssetPicker";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
@@ -55,7 +56,7 @@ function Home({ session }: { session: Session }) {
     setQuantity("");
     setPrice("");
     setTxCurrency('TRY');
-    setSymbol(""); setName(""); setSearchQuery(""); setSearchResults([]);
+    setSymbol(""); setName("");
     setTxDate(new Date().toISOString().slice(0, 10));
     setTxModalOpen(true);
   };
@@ -147,11 +148,6 @@ function Home({ session }: { session: Session }) {
   const [rangeResult, setRangeResult] = useState<number | null>(null);
   const [rangeLoading, setRangeLoading] = useState(false);
 
-  // Varlık arama state'leri
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [manualMode, setManualMode] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -181,28 +177,10 @@ function Home({ session }: { session: Session }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assetIdsKey]);
 
-  // Arama kutusuna yazıldıkça (debounce'lu) /api/search'ü çağırır
-  useEffect(() => {
-    if (searchQuery.trim().length < 2) { setSearchResults([]); return; }
-    const handle = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
-        const data = await res.json();
-        setSearchResults(data.results || []);
-      } catch { setSearchResults([]); }
-      setSearching(false);
-    }, 350);
-    return () => clearTimeout(handle);
-  }, [searchQuery]);
-
-  const typeLabel = (t: string) => t === 'stock' ? 'Hisse' : t === 'fund' ? 'Fon' : t === 'currency' ? 'Döviz' : t === 'metal' ? 'Maden' : t;
-
-  const selectSearchResult = (r: any) => {
-    setSymbol(r.symbol);
-    setName(r.name);
-    setType(r.type);
-    setSearchResults([]);
+  // AssetPicker'ın beklediği tek nesne; alttaki üç state'in görünümü.
+  const assetChoice: AssetChoice = { symbol, name, type };
+  const setAssetChoice = (next: AssetChoice) => {
+    setSymbol(next.symbol); setName(next.name); setType(next.type);
   };
 
   const fetchData = async () => {
@@ -222,7 +200,7 @@ function Home({ session }: { session: Session }) {
   const addAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     await supabase.from("assets").insert([{ symbol, name, type }]);
-    setSymbol(""); setName(""); setType("stock"); setSearchQuery(""); setSearchResults([]); fetchData();
+    setSymbol(""); setName(""); setType("stock"); fetchData();
   };
 
   const getHeldQty = (assetId: string) =>
@@ -272,7 +250,7 @@ function Home({ session }: { session: Session }) {
     if (error) { alert("Kaydedilemedi: " + error.message); return; }
 
     setQuantity(""); setPrice(""); setTxDate(new Date().toISOString().slice(0, 10));
-    setSymbol(""); setName(""); setSearchQuery(""); setSearchResults([]);
+    setSymbol(""); setName("");
     setTxNewAsset(false); setEditingTx(null);
     setTxModalOpen(false);
     fetchData();
@@ -729,67 +707,12 @@ function Home({ session }: { session: Session }) {
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
           <div className="xl:col-span-1 space-y-6">
              <form onSubmit={addAsset} className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
-                <div className="flex justify-between items-center mb-2">
-                  <h2 className="font-bold text-lg text-blue-400">Yeni Varlık Ekle</h2>
-                  <button
-                    type="button"
-                    onClick={() => { setManualMode(m => !m); setSymbol(""); setName(""); setSearchQuery(""); setSearchResults([]); }}
-                    className="text-xs text-gray-400 underline"
-                  >
-                    {manualMode ? "Aramaya dön" : "Bulamadım, manuel ekle"}
-                  </button>
-                </div>
+                <h2 className="font-bold text-lg text-blue-400 mb-2">Yeni Varlık Ekle</h2>
 
-                {manualMode ? (
-                  <>
-                    <input type="text" placeholder="Sembol (THYAO, USD, XAU, AFT...)" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
-                    <input type="text" placeholder="Varlık Adı" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
-                    <select value={type} onChange={(e) => setType(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600">
-                        <option value="stock">Hisse</option><option value="fund">Fon</option><option value="currency">Döviz</option><option value="metal">Değerli Maden</option>
-                    </select>
-                    <button type="submit" className="w-full bg-blue-600 py-2 rounded font-bold">Ekle</button>
-                  </>
-                ) : !symbol ? (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Ara: THYAO, Apple, USD, Altın..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full p-2 rounded bg-gray-700 border border-gray-600"
-                    />
-                    {searching && <div className="text-xs text-gray-400 mt-1">Aranıyor...</div>}
-                    {searchResults.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full bg-gray-700 border border-gray-600 rounded max-h-60 overflow-y-auto shadow-xl">
-                        {searchResults.map((r, i) => (
-                          <button
-                            type="button"
-                            key={i}
-                            onClick={() => selectSearchResult(r)}
-                            className="w-full text-left px-3 py-2 hover:bg-gray-600 flex justify-between items-center gap-2"
-                          >
-                            <span className="truncate"><span className="font-bold">{r.symbol}</span> <span className="text-gray-400 text-sm">{r.name}</span></span>
-                            <span className="text-xs uppercase text-gray-400 shrink-0">{typeLabel(r.type)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="bg-gray-700/60 border border-gray-600 rounded p-3 space-y-2">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0">
-                        <div className="font-bold truncate">{symbol}</div>
-                        <div className="text-sm text-gray-400 truncate">{name}</div>
-                      </div>
-                      <button type="button" onClick={() => { setSymbol(""); setName(""); setSearchQuery(""); }} className="text-xs text-gray-400 underline shrink-0">Temizle</button>
-                    </div>
-                    <select value={type} onChange={(e) => setType(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600">
-                        <option value="stock">Hisse</option><option value="fund">Fon</option><option value="currency">Döviz</option><option value="metal">Değerli Maden</option>
-                    </select>
-                    <button type="submit" className="w-full bg-blue-600 py-2 rounded font-bold">Ekle</button>
-                  </div>
-                )}
+                <AssetPicker value={assetChoice} onChange={setAssetChoice} />
+
+                <button type="submit" disabled={!symbol.trim()}
+                  className="w-full bg-blue-600 py-2 rounded font-bold disabled:opacity-50">Ekle</button>
              </form>
 
              <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
@@ -899,50 +822,9 @@ function Home({ session }: { session: Session }) {
               <div className="bg-gray-700/50 border border-gray-600 rounded p-3 space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-gray-400">Yeni varlık</span>
-                  <button type="button" onClick={() => { setTxNewAsset(false); setSymbol(""); setName(""); setSearchQuery(""); setSearchResults([]); }} className="text-xs text-gray-400 underline">Listeden seç</button>
+                  <button type="button" onClick={() => { setTxNewAsset(false); setSymbol(""); setName(""); }} className="text-xs text-gray-400 underline">Listeden seç</button>
                 </div>
-
-                {symbol ? (
-                  <div className="flex justify-between items-start gap-2">
-                    <div className="min-w-0">
-                      <div className="font-bold truncate">{symbol}</div>
-                      <div className="text-xs text-gray-400 truncate">{name}</div>
-                    </div>
-                    <button type="button" onClick={() => { setSymbol(""); setName(""); setSearchQuery(""); }} className="text-xs text-gray-400 underline shrink-0">Değiştir</button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Ara: THYAO, Apple, USD, Altın..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full p-2 rounded bg-gray-700 border border-gray-600"
-                      autoFocus
-                    />
-                    {searching && <div className="text-xs text-gray-400 mt-1">Aranıyor...</div>}
-                    {searchResults.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full bg-gray-700 border border-gray-600 rounded max-h-52 overflow-y-auto shadow-xl">
-                        {searchResults.map((r, i) => (
-                          <button type="button" key={i} onClick={() => selectSearchResult(r)}
-                            className="w-full text-left px-3 py-2 hover:bg-gray-600 flex justify-between items-center gap-2">
-                            <span className="truncate"><span className="font-bold">{r.symbol}</span> <span className="text-gray-400 text-sm">{r.name}</span></span>
-                            <span className="text-xs uppercase text-gray-400 shrink-0">{typeLabel(r.type)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-xs text-gray-500 mt-1">Bulamazsan sembolü doğrudan yazıp tipini aşağıdan seçebilirsin.</p>
-                    <input type="text" placeholder="veya sembolü elle yaz (THYAO)" value={symbol}
-                      onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-                      className="w-full p-2 mt-1 rounded bg-gray-700 border border-gray-600 text-sm" />
-                  </div>
-                )}
-
-                <select value={type} onChange={(e) => setType(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm">
-                  <option value="stock">Hisse</option><option value="fund">Fon</option>
-                  <option value="currency">Döviz</option><option value="metal">Değerli Maden</option>
-                </select>
+                <AssetPicker value={assetChoice} onChange={setAssetChoice} autoFocus />
               </div>
             ) : (
               <div className="flex gap-2">
@@ -954,7 +836,7 @@ function Home({ session }: { session: Session }) {
                   {assets.map(a => <option key={a.id} value={a.id}>{a.symbol}</option>)}
                 </select>
                 {!editingTx && (
-                  <button type="button" onClick={() => { setTxNewAsset(true); setSymbol(""); setName(""); setSearchQuery(""); }}
+                  <button type="button" onClick={() => { setTxNewAsset(true); setSymbol(""); setName(""); }}
                     title="Portföyde olmayan bir varlık ekle"
                     className="px-3 rounded bg-gray-700 hover:bg-gray-600 text-sm">+ Yeni</button>
                 )}
