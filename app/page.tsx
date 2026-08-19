@@ -8,6 +8,7 @@ import AuthGate from "./components/AuthGate";
 import Comparison from "./components/Comparison";
 import TransactionsTab from "./components/TransactionsTab";
 import ApiKeySettings from "./components/ApiKeySettings";
+import PortfolioTable from "./components/PortfolioTable";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
@@ -829,191 +830,28 @@ function Home({ session }: { session: Session }) {
              </div>
           </div>
 
-          <div className="xl:col-span-3 bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                <h2 className="font-bold text-lg text-purple-400">Portföy</h2>
-                <button
-                  onClick={fetchPrices}
-                  disabled={loading}
-                  title="Fiyatları yenile"
-                  aria-label="Fiyatları yenile"
-                  className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:hover:bg-transparent"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`}
-                  >
-                    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                    <polyline points="21 3 21 9 15 9" />
-                  </svg>
-                </button>
-            </div>
-            <table className="w-full text-left">
-              <thead className="bg-gray-900/50 text-gray-400 text-sm">
-                <tr>
-                  <SortHeader label="Sembol" sortKey="symbol" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortHeader label="Adet" sortKey="totalQty" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortHeader label={isHistorical ? 'O Günkü Fiyat' : 'Güncel Fiyat'} sortKey="currentPrice" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortHeader label="Değer" sortKey="value" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                  {/* Pay, Değer'in portföye oranı — ayrı bir sıralama anahtarı olmaz. */}
-                  <th className="p-4">Pay</th>
-                  <SortHeader label="Anlık K/Z" sortKey="unrealizedPL" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <SortHeader label="Realize K/Z" sortKey="realizedPL" active={sortKey} dir={sortDir} onSort={toggleSort} />
-                  <th className="p-4"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {openPositions.map((item) => (
-                  <tr key={item.id} className="border-b border-gray-700 hover:bg-gray-750">
-                    <td className="p-4 font-bold">{item.symbol}</td>
-                    <td className="p-4">{item.totalQty.toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</td>
-                    <td className="p-4">
-                      {editingPriceIds.has(item.id) ? (
-                        <input
-                          type="number"
-                          autoFocus
-                          className="bg-gray-700 border border-gray-600 rounded px-2 py-1 w-32"
-                          value={item.currentPrice}
-                          onChange={(e) => setCurrentPrices(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) || 0 }))}
-                          onBlur={() => toggleEditPrice(item.id)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') toggleEditPrice(item.id); }}
-                        />
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <span>{item.currentPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
-                          {!isHistorical && (
-                            <button type="button" onClick={() => toggleEditPrice(item.id)} title="Elle düzenle" className="text-gray-400 hover:text-white text-xs">✎</button>
-                          )}
-                        </div>
-                      )}
-                      <div className="text-xs text-gray-400 mt-1">≈ ${item.currentPriceUSD.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
-                    </td>
-                    <td className="p-4">
-                      <div className="font-bold">{item.value.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</div>
-                      <div className="text-xs text-gray-400 mt-1">{item.valueUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</div>
-                    </td>
-                    <td className="p-4">
-                      <div className="text-sm text-gray-300">
-                        {totalValue > 0 ? `%${(item.value / totalValue * 100).toFixed(1)}` : '—'}
-                      </div>
-                      <div className="mt-1 h-1.5 w-16 bg-gray-700 rounded overflow-hidden">
-                        <div className="h-full bg-purple-500" style={{ width: `${totalValue > 0 ? (item.value / totalValue * 100) : 0}%` }} />
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className={`font-bold ${item.unrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {item.unrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
-                      </div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {item.unrealizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className={`font-bold ${item.realizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {item.realizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
-                      </div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {item.realizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {!isHistorical && (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => openTxModal(item.id, 'buy')}
-                            title={`${item.symbol} al`}
-                            className="px-2.5 py-1 rounded text-xs font-bold bg-green-600/20 text-green-400 hover:bg-green-600 hover:text-white transition-colors"
-                          >Al</button>
-                          <button
-                            onClick={() => openTxModal(item.id, 'sell')}
-                            title={`${item.symbol} sat`}
-                            className="px-2.5 py-1 rounded text-xs font-bold bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white transition-colors"
-                          >Sat</button>
-                          <button
-                            onClick={() => openTxModal(item.id, 'dividend')}
-                            title={`${item.symbol} temettü gir`}
-                            className="px-2.5 py-1 rounded text-xs font-bold bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white transition-colors"
-                          >₺</button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-
-                {openPositions.length === 0 && (
-                  <tr><td colSpan={8} className="p-8 text-center text-gray-500">
-                    {isHistorical ? `${asOfDate} tarihinde açık pozisyon yok.` : 'Açık pozisyon yok.'}
-                  </td></tr>
-                )}
-
-                <tr className="bg-gray-900/40 border-t-2 border-gray-600">
-                  <td className="p-4 font-bold" colSpan={3}>TOPLAM</td>
-                  <td className="p-4">
-                    <div className="font-bold">{totalValue.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</div>
-                    <div className="text-xs text-gray-400 mt-1">{totalValueUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</div>
-                  </td>
-                  <td className="p-4 text-sm text-gray-400">%100</td>
-                  <td className="p-4">
-                    <div className={`font-bold ${totalUnrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {totalUnrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <div className={`font-bold ${totalRealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {totalRealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
-                    </div>
-                  </td>
-                  <td className="p-4"></td>
-                </tr>
-
-                {closedPositions.length > 0 && (
-                  <tr>
-                    <td colSpan={8} className="p-0">
-                      <button
-                        onClick={() => setShowClosed(s => !s)}
-                        className="w-full text-left px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-gray-700/40 transition-colors"
-                      >
-                        {showClosed ? '▾' : '▸'} Geçmiş pozisyonlar ({closedPositions.length})
-                      </button>
-                    </td>
-                  </tr>
-                )}
-
-                {showClosed && closedPositions.map((item) => (
-                  <tr key={item.id} className="border-b border-gray-700 text-gray-400 hover:bg-gray-750">
-                    <td className="p-4 font-bold">{item.symbol}</td>
-                    <td className="p-4">—</td>
-                    <td className="p-4">{item.currentPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</td>
-                    <td className="p-4">—</td>
-                    <td className="p-4">—</td>
-                    <td className="p-4">—</td>
-                    <td className="p-4">
-                      <div className={`font-bold ${item.realizedPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {item.realizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {item.realizedPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {!isHistorical && (
-                        <button
-                          onClick={() => openTxModal(item.id, 'buy')}
-                          title={`${item.symbol} al`}
-                          className="px-2.5 py-1 rounded text-xs font-bold bg-green-600/20 text-green-400 hover:bg-green-600 hover:text-white transition-colors"
-                        >Al</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="xl:col-span-3">
+            <PortfolioTable
+              openPositions={openPositions}
+              closedPositions={closedPositions}
+              totals={{
+                value: totalValue, valueUSD: totalValueUSD,
+                unrealizedPL: totalUnrealizedPL, realizedPL: totalRealizedPL,
+              }}
+              isHistorical={isHistorical}
+              asOfDate={asOfDate}
+              loading={loading || asOfLoading}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={toggleSort}
+              editingPriceIds={editingPriceIds}
+              onToggleEditPrice={toggleEditPrice}
+              onPriceChange={(id, price) => setCurrentPrices(prev => ({ ...prev, [id]: price }))}
+              onOpenTx={openTxModal}
+              showClosed={showClosed}
+              onToggleClosed={() => setShowClosed(s => !s)}
+              onRefresh={fetchPrices}
+            />
           </div>
         </div>
         </>}
@@ -1301,33 +1139,5 @@ function Home({ session }: { session: Session }) {
         </div>
       )}
     </div>
-  );
-}
-function SortHeader({
-  label, sortKey, active, dir, onSort,
-}: {
-  label: string;
-  sortKey: SortKey;
-  active: SortKey;
-  dir: SortDir;
-  onSort: (key: SortKey) => void;
-}) {
-  const isActive = active === sortKey;
-  return (
-    <th className="p-0">
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        aria-sort={isActive ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-        className={`w-full text-left px-4 py-4 flex items-center gap-1 transition-colors hover:text-white ${isActive ? 'text-white' : ''}`}
-      >
-        {label}
-        {/* Sıralanmayan sütunlarda ok soluk duruyor: tıklanabilir olduğu belli olsun
-            ama aktif sütunla karışmasın. */}
-        <span className={isActive ? 'text-purple-400' : 'text-gray-600'}>
-          {isActive ? (dir === 'asc' ? '↑' : '↓') : '↕'}
-        </span>
-      </button>
-    </th>
   );
 }
