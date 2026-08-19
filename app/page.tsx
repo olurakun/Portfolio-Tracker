@@ -7,6 +7,8 @@ import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } 
 import AuthGate from "./components/AuthGate";
 import Comparison from "./components/Comparison";
 import TransactionsTab from "./components/TransactionsTab";
+import ApiKeySettings from "./components/ApiKeySettings";
+import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
 
@@ -130,6 +132,8 @@ function Home({ session }: { session: Session }) {
   const [importMeta, setImportMeta] = useState<
     { skipped: string[]; sourceTransactionCount: number | null } | null
   >(null);
+  // Sunucu anahtar bulamazsa anahtar alanını kendiliğinden açar.
+  const [needsApiKey, setNeedsApiKey] = useState(false);
 
   // Dönem (tarih aralığı) K/Z state'leri
   const [rangeStart, setRangeStart] = useState("");
@@ -414,12 +418,22 @@ function Home({ session }: { session: Session }) {
     if (!pendingFile) return;
     setImportBusy(true);
     setImportError("");
+    setNeedsApiKey(false);
     try {
       const body = new FormData();
       body.append('file', pendingFile);
-      const res = await fetch('/api/convert', { method: 'POST', body });
+      // Kullanıcının kendi anahtarı varsa istekle birlikte gider; yoksa sunucu
+      // anahtarı denenir. Anahtar hiçbir yerde saklanmaz, istek başına okunur.
+      const userKey = readUserApiKey();
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${session.access_token}`,
+      };
+      if (userKey) headers['x-anthropic-key'] = userKey;
+
+      const res = await fetch('/api/convert', { method: 'POST', body, headers });
       const data = await res.json();
       if (!res.ok) {
+        if (data.needsKey) setNeedsApiKey(true);
         setImportError(data.error || 'Dönüştürme başarısız oldu.');
       } else if (!data.rows || data.rows.length === 0) {
         setImportError('Dosyada içe aktarılabilir bir işlem bulunamadı.');
@@ -761,12 +775,15 @@ function Home({ session }: { session: Session }) {
                   Excel, CSV veya PDF. Şablon formatındaki dosyalar doğrudan okunur; aracı
                   kurum ekstresi gibi başka formatlar şablona çevrilerek aktarılır.
                 </p>
-                <a
-                  href="/api/template"
-                  className="inline-block text-xs text-orange-400 underline hover:text-orange-300"
-                >
-                  ⬇ Excel şablonunu indir
-                </a>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <a
+                    href="/api/template"
+                    className="text-xs text-orange-400 underline hover:text-orange-300"
+                  >
+                    ⬇ Excel şablonunu indir
+                  </a>
+                </div>
+                <ApiKeySettings forceOpen={needsApiKey} />
                 <input
                   type="file"
                   accept=".csv,.xlsx,.xlsm,.txt,.pdf"

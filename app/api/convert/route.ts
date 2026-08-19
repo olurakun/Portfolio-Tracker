@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { buildRow, type ParsedRow } from "../../../lib/importParse";
 import { parseCsv, parseXlsx, gridToText } from "../../../lib/fileGrid";
+import { isApiKeyFormat } from "../../../lib/apiKey";
+import { userIdFromRequest } from "../../../lib/serverAuth";
 
 // AKILLI İÇE AKTARMA (Faz 5)
 // Kullanıcının aracı kurumundan aldığı dosyayı ŞABLONA ÇEVİRİR — içe aktarmaz.
@@ -69,10 +71,26 @@ type ConversionOutput = {
 };
 
 export async function POST(request: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Bu uç dış bir servise ÜCRETLİ çağrı yapıyor; oturumsuz çağrılabilirse
+  // adresi bilen herkes sunucu anahtarından harcayabilir.
+  const userId = await userIdFromRequest(request);
+  if (!userId) {
+    return NextResponse.json({ error: 'Oturum gerekli.' }, { status: 401 });
+  }
+
+  // Kullanıcının kendi anahtarı varsa o kullanılır; anahtar sunucuda hiçbir
+  // yere yazılmaz, yalnızca bu istek boyunca bellekte durur.
+  const userKey = (request.headers.get('x-anthropic-key') ?? '').trim();
+  if (userKey && !isApiKeyFormat(userKey)) {
+    return NextResponse.json({
+      error: 'Girdiğin anahtar Anthropic anahtarına benzemiyor (sk-ant- ile başlamalı).',
+    }, { status: 400 });
+  }
+  const apiKey = userKey || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json({
-      error: 'Akıllı dönüştürme kapalı: sunucuda ANTHROPIC_API_KEY tanımlı değil.',
+      error: 'Dönüştürme için bir API anahtarı gerekiyor. Kendi Anthropic anahtarını içe aktarma bölümünden girebilirsin.',
+      needsKey: true,
     }, { status: 503 });
   }
 
@@ -144,11 +162,18 @@ export async function POST(request: Request) {
     const text = message.content.filter(b => b.type === 'text').map(b => b.text).join('');
     output = JSON.parse(text) as ConversionOutput;
   } catch (err) {
+    // Hata mesajlarında anahtar asla yankılanmaz.
     if (err instanceof Anthropic.AuthenticationError) {
-      return NextResponse.json({ error: 'ANTHROPIC_API_KEY geçersiz.' }, { status: 503 });
+      return NextResponse.json({
+        error: userKey ? 'Girdiğin API anahtarı geçersiz veya iptal edilmiş.' : 'Sunucudaki API anahtarı geçersiz.',
+        needsKey: !!userKey,
+      }, { status: 401 });
     }
     if (err instanceof Anthropic.RateLimitError) {
       return NextResponse.json({ error: 'Kota doldu, biraz sonra tekrar deneyin.' }, { status: 429 });
+    }
+    if (err instanceof Anthropic.PermissionDeniedError) {
+      return NextResponse.json({ error: 'Anahtarın bu modele erişim izni yok veya bakiye yetersiz.' }, { status: 403 });
     }
     return NextResponse.json({ error: 'Dönüştürme başarısız oldu. Tekrar deneyin.' }, { status: 502 });
   }
