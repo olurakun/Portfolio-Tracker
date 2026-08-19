@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { convertTxPrice, type FxRates, type Transaction } from "../../lib/portfolio";
+import { brokersOf, brokerKey, brokerLabel, normalizeBroker, UNASSIGNED } from "../../lib/brokers";
 
 type Asset = { id: string | number; symbol: string; type: string };
-type Tx = Transaction & { id: number | string; created_at?: string };
+type Tx = Transaction & { id: number | string; created_at?: string; broker?: string | null };
 
 const TYPE_LABEL: Record<string, string> = { buy: 'Alım', sell: 'Satım', dividend: 'Temettü' };
 const TYPE_CLASS: Record<string, string> = {
@@ -37,6 +38,7 @@ export function groupIntoBatches(rows: Tx[], gapSeconds = 120) {
 
 export default function TransactionsTab({
   assets, transactions, fxRates, onEdit, onDelete, onDeleteMany, onDeleteAsset, onAdd,
+  onSetAssetBroker,
 }: {
   assets: Asset[];
   transactions: Tx[];
@@ -46,9 +48,12 @@ export default function TransactionsTab({
   onDeleteMany: (rows: Tx[], label: string) => void;
   onDeleteAsset: (asset: Asset) => void;
   onAdd: () => void;
+  onSetAssetBroker: (asset: Asset, broker: string) => void;
 }) {
   const [assetFilter, setAssetFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [brokerFilter, setBrokerFilter] = useState('all');
+  const brokers = useMemo(() => brokersOf(transactions), [transactions]);
 
   const assetById = useMemo(() => {
     const m = new Map<string, Asset>();
@@ -60,10 +65,11 @@ export default function TransactionsTab({
     return transactions
       .filter(tx => assetFilter === 'all' || String(tx.asset_id) === assetFilter)
       .filter(tx => typeFilter === 'all' || tx.type === typeFilter)
+      .filter(tx => brokerFilter === 'all' || brokerKey(tx.broker) === brokerKey(brokerFilter))
       .slice()
       .sort((a, b) => String(b.date).localeCompare(String(a.date)) ||
                       String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
-  }, [transactions, assetFilter, typeFilter]);
+  }, [transactions, assetFilter, typeFilter, brokerFilter]);
 
   const batches = useMemo(() => groupIntoBatches(transactions), [transactions]);
 
@@ -95,6 +101,18 @@ export default function TransactionsTab({
             <option value="dividend">Temettü</option>
           </select>
         </div>
+        {brokers.length > 1 && (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Aracı kurum</label>
+            <select value={brokerFilter} onChange={e => setBrokerFilter(e.target.value)}
+              className="p-2 rounded bg-gray-700 border border-gray-600 text-sm">
+              <option value="all">Hepsi</option>
+              {brokers.map(b => (
+                <option key={b || UNASSIGNED} value={b}>{brokerLabel(b)}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <button onClick={onAdd} className="ml-auto bg-green-600 hover:bg-green-700 px-4 py-2 rounded font-bold text-sm">
           + İşlem ekle
         </button>
@@ -143,6 +161,7 @@ export default function TransactionsTab({
                 <th className="p-3 text-right">Adet</th>
                 <th className="p-3 text-right">Fiyat</th>
                 <th className="p-3 text-right">Tutar (₺)</th>
+                <th className="p-3">Aracı</th>
                 <th className="p-3"></th>
               </tr>
             </thead>
@@ -166,6 +185,9 @@ export default function TransactionsTab({
                     <td className="p-3 text-right tabular-nums text-gray-300">
                       {total === null ? '—' : total.toLocaleString('tr-TR', { maximumFractionDigits: 0 })}
                     </td>
+                    <td className="p-3 text-gray-400 text-xs">
+                      {normalizeBroker(tx.broker) || <span className="text-gray-600">—</span>}
+                    </td>
                     <td className="p-3">
                       <div className="flex gap-1 justify-end">
                         <button onClick={() => onEdit(tx)} title="Düzenle"
@@ -178,7 +200,7 @@ export default function TransactionsTab({
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={7} className="p-8 text-center text-gray-500">
+                <tr><td colSpan={8} className="p-8 text-center text-gray-500">
                   {transactions.length === 0 ? 'Henüz işlem yok.' : 'Bu filtreye uyan işlem yok.'}
                 </td></tr>
               )}
@@ -190,21 +212,48 @@ export default function TransactionsTab({
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-4">
         <div className="font-bold text-sm mb-1">Varlıklar</div>
         <p className="text-xs text-gray-400 mb-3">
+          Aracı kurumu buradan varlığın TÜM işlemlerine birden atayabilirsin.
           Bir varlığı silmek, ona ait tüm işlemleri de siler.
         </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="space-y-1.5">
           {assets.slice().sort((a, b) => a.symbol.localeCompare(b.symbol, 'tr')).map(a => {
-            const count = transactions.filter(t => String(t.asset_id) === String(a.id)).length;
+            const rows = transactions.filter(t => String(t.asset_id) === String(a.id));
+            // Bir varlığın işlemleri farklı kurumlarda olabilir; o durumda toplu
+            // atama teklif etmek yanlış olur, "karışık" deyip elden düzenlemeye bırakırız.
+            const distinct = brokersOf(rows);
+            const current = distinct.length === 1 ? distinct[0] : null;
             return (
-              <span key={a.id} className="inline-flex items-center gap-2 bg-gray-900/40 border border-gray-700 rounded px-2.5 py-1">
-                <span className="text-sm font-bold">{a.symbol}</span>
-                <span className="text-xs text-gray-500">{count} işlem</span>
+              <div key={a.id} className="flex items-center gap-2 flex-wrap bg-gray-900/40 border border-gray-700 rounded px-2.5 py-1.5">
+                <span className="text-sm font-bold w-20">{a.symbol}</span>
+                <span className="text-xs text-gray-500 w-16">{rows.length} işlem</span>
+
+                {distinct.length > 1 ? (
+                  <span className="text-xs text-amber-400/80">karışık ({distinct.map(brokerLabel).join(', ')})</span>
+                ) : (
+                  <select
+                    value={current ?? UNASSIGNED}
+                    onChange={(e) => {
+                      const picked = e.target.value === '__new__'
+                        ? normalizeBroker(prompt('Aracı kurum adı:') ?? '')
+                        : e.target.value;
+                      if (e.target.value === '__new__' && !picked) return;
+                      onSetAssetBroker(a, picked);
+                    }}
+                    aria-label={`${a.symbol} aracı kurumu`}
+                    className="p-1 rounded bg-gray-700 border border-gray-600 text-xs max-w-[180px]"
+                  >
+                    <option value={UNASSIGNED}>— Belirtilmemiş</option>
+                    {brokers.filter(Boolean).map(b => <option key={b} value={b}>{b}</option>)}
+                    <option value="__new__">+ Yeni kurum…</option>
+                  </select>
+                )}
+
                 <button
                   onClick={() => onDeleteAsset(a)}
                   title={`${a.symbol} sil`}
-                  className="text-gray-500 hover:text-red-400 text-xs"
+                  className="ml-auto text-gray-500 hover:text-red-400 text-xs"
                 >✕</button>
-              </span>
+              </div>
             );
           })}
         </div>

@@ -5,6 +5,7 @@ import { supabase } from "../lib/supabase";
 import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
 import { findDuplicateRows } from "../lib/importParse";
+import { brokersOf, filterByBroker, normalizeBroker } from "../lib/brokers";
 import AuthGate from "./components/AuthGate";
 import Comparison from "./components/Comparison";
 import TransactionsTab from "./components/TransactionsTab";
@@ -12,6 +13,7 @@ import ApiKeySettings from "./components/ApiKeySettings";
 import PortfolioTable from "./components/PortfolioTable";
 import ImportPreview from "./components/ImportPreview";
 import AssetPicker, { type AssetChoice } from "./components/AssetPicker";
+import BrokerBar from "./components/BrokerBar";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
@@ -56,6 +58,11 @@ function Home({ session }: { session: Session }) {
     setQuantity("");
     setPrice("");
     setTxCurrency('TRY');
+    // Aracıyı elle her seferinde yazdırmamak için o varlığın son işleminden,
+    // yoksa seçili filtreden tahmin ediyoruz.
+    const lastForAsset = [...transactions].reverse()
+      .find(tx => String(tx.asset_id) === String(assetId) && normalizeBroker(tx.broker));
+    setTxBroker(normalizeBroker(lastForAsset?.broker) || (brokerFilter ?? ""));
     setSymbol(""); setName("");
     setTxDate(new Date().toISOString().slice(0, 10));
     setTxModalOpen(true);
@@ -69,8 +76,21 @@ function Home({ session }: { session: Session }) {
     setQuantity(tx.type === 'dividend' ? "" : String(tx.quantity));
     setPrice(String(tx.price));
     setTxCurrency((tx.currency || 'TRY').toUpperCase());
+    setTxBroker(normalizeBroker(tx.broker));
     setTxDate(tx.date);
     setTxModalOpen(true);
+  };
+
+  // Mevcut kayıtların aracısını toplu doldurmak için: bir varlığın TÜM
+  // işlemlerine tek seferde aracı atar. 92+ işlemi elle düzenlemek gerçekçi değil.
+  const setAssetBroker = async (asset: any, broker: string) => {
+    const value = normalizeBroker(broker) || null;
+    const { error } = await supabase
+      .from("transactions")
+      .update({ broker: value })
+      .eq('asset_id', asset.id);
+    if (error) { alert("Aracı kurum kaydedilemedi: " + error.message); return; }
+    fetchData();
   };
 
   const deleteTransaction = async (tx: any) => {
@@ -110,6 +130,10 @@ function Home({ session }: { session: Session }) {
   const [price, setPrice] = useState("");
   const [txDate, setTxDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [txCurrency, setTxCurrency] = useState('TRY');
+  // Aracı kurum işlemde tutuluyor: aynı sembol birden fazla kurumda olabilir.
+  const [txBroker, setTxBroker] = useState("");
+  // Portföy görünümünde seçili aracı; null "hepsi" demek.
+  const [brokerFilter, setBrokerFilter] = useState<string | null>(null);
   // Modal içinden yeni varlık açma: portföyde olmayan bir şeye işlem girmek için
   // önce ayrı bir formdan varlık oluşturmak gerekiyordu.
   const [txNewAsset, setTxNewAsset] = useState(false);
@@ -241,6 +265,7 @@ function Home({ session }: { session: Session }) {
       price: Number(price),
       date: txDate,
       currency: txCurrency,
+      broker: normalizeBroker(txBroker) || null,
     };
 
     const { error } = editingTx
@@ -561,8 +586,13 @@ function Home({ session }: { session: Session }) {
   const viewPrices = isHistorical ? asOfPrices : currentPrices;
   const viewPricesUSD = isHistorical ? asOfPricesUSD : currentPricesUSD;
 
+  // Aracı kırılımı: seçili aracı varsa portföy YALNIZCA o kurumun işlemlerinden
+  // hesaplanır, böylece adet, maliyet ve K/Z o kurumun ekstresiyle karşılaştırılabilir.
+  const brokerList = brokersOf(transactions);
+  const visibleTransactions = filterByBroker(transactions, brokerFilter);
+
   const portfolio = assets.map(asset => {
-    const assetTx = transactions.filter(tx =>
+    const assetTx = visibleTransactions.filter(tx =>
       tx.asset_id === asset.id && (!isHistorical || tx.date <= asOfDate));
 
     const { totalQty, totalCost, totalCostUSD, avgCost, realizedPL, realizedPLUSD } =
@@ -589,6 +619,17 @@ function Home({ session }: { session: Session }) {
   const totalRealizedPL = portfolio.reduce((acc, i) => acc + i.realizedPL, 0);
   const totalPL = totalUnrealizedPL + totalRealizedPL;
   const totalPLUSD = portfolio.reduce((acc, i) => acc + i.unrealizedPLUSD + i.realizedPLUSD, 0);
+
+  // Her kurumun toplam değeri. Kurum sayısı az olduğu için doğrudan hesaplanıyor.
+  const brokerTotals = brokerList.map(broker => {
+    const txs = filterByBroker(transactions, broker);
+    const value = assets.reduce((acc, asset) => {
+      const assetTx = txs.filter(tx =>
+        tx.asset_id === asset.id && (!isHistorical || tx.date <= asOfDate));
+      return acc + computePosition(assetTx, fxRates).totalQty * (viewPrices[asset.id] || 0);
+    }, 0);
+    return { broker, value };
+  });
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8 font-sans">
@@ -652,6 +693,7 @@ function Home({ session }: { session: Session }) {
             onDeleteMany={deleteManyTransactions}
             onDeleteAsset={deleteAsset}
             onAdd={() => openTxModal(selectedAssetId || String(assets[0]?.id ?? ''), 'buy')}
+            onSetAssetBroker={setAssetBroker}
           />
         )}
 
@@ -680,6 +722,13 @@ function Home({ session }: { session: Session }) {
             </div>
           )}
         </div>
+
+        <BrokerBar
+          totals={brokerTotals}
+          selected={brokerFilter}
+          onSelect={setBrokerFilter}
+          grandTotal={brokerTotals.reduce((acc, b) => acc + b.value, 0)}
+        />
 
         {!isHistorical && (
           <PortfolioChart assets={assets} transactions={transactions} fxRates={fxRates} />
@@ -871,6 +920,20 @@ function Home({ session }: { session: Session }) {
                 <option value="USD">$ USD</option>
               </select>
             </div>
+
+            {/* Aracı kurum serbest metin: kurum listesi sabit değil, daha önce
+                yazdıkların öneri olarak geliyor. */}
+            <input
+              type="text"
+              list="broker-suggestions"
+              placeholder="Aracı kurum (Midas, Yapı Kredi...)"
+              value={txBroker}
+              onChange={(e) => setTxBroker(e.target.value)}
+              className="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm"
+            />
+            <datalist id="broker-suggestions">
+              {brokerList.filter(Boolean).map(b => <option key={b} value={b} />)}
+            </datalist>
 
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setTxModalOpen(false)} className="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600">İptal</button>

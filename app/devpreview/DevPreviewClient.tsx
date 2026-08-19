@@ -5,6 +5,7 @@ import PortfolioTable from "../components/PortfolioTable";
 import ImportPreview, { type DupePolicy } from "../components/ImportPreview";
 import ApiKeySettings from "../components/ApiKeySettings";
 import AssetPicker, { type AssetChoice } from "../components/AssetPicker";
+import BrokerBar from "../components/BrokerBar";
 import type { SortKey, SortDir } from "../../lib/sortPositions";
 import * as fx from "./fixtures";
 
@@ -41,6 +42,7 @@ export default function DevPreviewClient() {
   const [choices, setChoices] = useState<Record<string, 'create' | 'skip'>>({ TLY: 'create' });
   const [types, setTypes] = useState<Record<string, string>>({ TLY: 'fund' });
   const [choice, setChoice] = useState<AssetChoice>({ symbol: '', name: '', type: 'stock' });
+  const [broker, setBroker] = useState<string | null>(null);
 
   const isEmptyCase = tableCase === 'empty' || tableCase === 'loading';
   // Yinelenen bayrakları senaryoya göre: 1. ve 3. satır zaten portföyde varmış gibi.
@@ -88,6 +90,13 @@ export default function DevPreviewClient() {
             onToggleClosed={() => setShowClosed(s => !s)}
             onRefresh={() => {}}
           />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Aracı kurum kırılımı</h2>
+          <BrokerBar totals={fx.brokerTotals} selected={broker} onSelect={setBroker}
+            grandTotal={fx.brokerTotals.reduce((a, b) => a + b.value, 0)} />
+          <div className="text-xs text-gray-500">Seçili: <code className="text-gray-300">{String(broker)}</code></div>
         </section>
 
         <section className="space-y-3">

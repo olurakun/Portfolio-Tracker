@@ -3,6 +3,9 @@
 // buradan geçer — böylece "nereden geldiği" ne olursa olsun bir işlemin
 // geçerlilik kuralları tek yerde tanımlı kalır.
 
+import { fold } from './turkish';
+export { fold };
+
 export type TxType = 'buy' | 'sell' | 'dividend';
 
 export type ParsedRow = {
@@ -39,16 +42,6 @@ export function parseCurrency(value: unknown): string | null {
   return CURRENCY_ALIASES[clean] ?? null;
 }
 
-// JS'in varsayılan toLowerCase'i Türkçe'de bozuk sonuç verir ("İ" → noktalı i,
-// "I" → "i" ama "ı" beklenir). Karşılaştırmadan önce Türkçe harfleri ASCII'ye katlarız.
-const TURKISH_FOLD: Record<string, string> = {
-  'İ': 'i', 'I': 'i', 'ı': 'i', 'Ş': 's', 'ş': 's', 'Ğ': 'g', 'ğ': 'g',
-  'Ü': 'u', 'ü': 'u', 'Ö': 'o', 'ö': 'o', 'Ç': 'c', 'ç': 'c',
-};
-
-export function fold(value: string): string {
-  return value.trim().replace(/[İIıŞşĞğÜüÖöÇç]/g, c => TURKISH_FOLD[c]).toLowerCase();
-}
 
 export function normalizeHeader(value: string): string | null {
   const clean = fold(value.toString());

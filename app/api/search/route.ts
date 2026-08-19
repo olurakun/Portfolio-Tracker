@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { mergeAndRank, isTickerLike, type SearchResult } from "../../../lib/searchRank";
+// Kullanıcı "altin" diye de yazabilir; karşılaştırmadan önce ASCII'ye katlıyoruz.
+import { fold } from "../../../lib/turkish";
 
 // Değerli madenler Yahoo aramasında düzgün bulunamıyor: "altın"/"gümüş" hiç sonuç
 // vermiyor, "xau" ise ancak "XAU/ROX" gibi anlamsız isimli bir kur paritesi olarak
@@ -12,16 +14,6 @@ const METAL_ENTRIES: { symbol: string; name: string; keywords: string[] }[] = [
   { symbol: 'XAGOZ', name: 'Gümüş (ons)', keywords: ['xag', 'xagoz', 'gumus', 'gümüş', 'silver', 'ons gumus', 'ons gümüş', 'ounce'] },
 ];
 
-// JS'in toLowerCase'i Türkçe'de bozuk sonuç verir ("I" → "i" ama "ı" beklenir),
-// ayrıca kullanıcı "altin" diye de yazabilir; karşılaştırmadan önce ASCII'ye katlıyoruz.
-const TURKISH_FOLD: Record<string, string> = {
-  'İ': 'i', 'I': 'i', 'ı': 'i', 'Ş': 's', 'ş': 's', 'Ğ': 'g', 'ğ': 'g',
-  'Ü': 'u', 'ü': 'u', 'Ö': 'o', 'ö': 'o', 'Ç': 'c', 'ç': 'c',
-};
-
-function fold(value: string): string {
-  return value.trim().replace(/[İIıŞşĞğÜüÖöÇç]/g, c => TURKISH_FOLD[c]).toLowerCase();
-}
 
 function matchingMetals(query: string) {
   const q = fold(query);

@@ -48,3 +48,9 @@ export const importMeta = {
 };
 
 export const negatives = [{ symbol: 'ASELS', net: -120 }];
+
+export const brokerTotals = [
+  { broker: 'Midas', value: 1414508.61 },
+  { broker: 'Yapı Kredi', value: 2186275.2 },
+  { broker: '', value: 170700 },
+];
