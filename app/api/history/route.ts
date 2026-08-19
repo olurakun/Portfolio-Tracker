@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readCache, writeCache, purgeCache, hasRestatement } from "../../../lib/priceCache";
+import { tefasSeries as tefasFetch, periodForRange } from "../../../lib/tefas";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -46,26 +47,6 @@ async function yahooSeries(ticker: string, start: string, end: string) {
   return { currency, prices };
 }
 
-async function tefasSeries(fundCode: string, start: string) {
-  const target = new Date(`${start}T00:00:00Z`);
-  const now = new Date();
-  const monthsNeeded = (now.getFullYear() - target.getFullYear()) * 12 + (now.getMonth() - target.getMonth()) + 1;
-  const periyod = [1, 3, 6, 12].find(p => p >= monthsNeeded) ?? 12;
-  const res = await fetch("https://www.tefas.gov.tr/api/funds/fonFiyatBilgiGetir", {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({ fonKodu: fundCode, dil: 'TR', periyod }),
-    cache: 'no-store',
-  });
-  const data = await res.json();
-  const list = data?.resultList;
-  if (!Array.isArray(list)) return null;
-  const prices: Record<string, number> = {};
-  for (const e of list) {
-    if (typeof e?.fiyat === "number" && e.fiyat > 0 && e.tarih) prices[e.tarih] = e.fiyat;
-  }
-  return { currency: 'TRY', prices };
-}
 
 async function frankfurterSeries(from: string, start: string, end: string) {
   const res = await fetch(`https://api.frankfurter.dev/v1/${start}..${end}?from=${from}&to=TRY`, { cache: 'no-store' });
@@ -103,7 +84,7 @@ async function seriesFor(symbolRaw: string, type: string | null, start: string, 
       }
       return s2;
     }
-    if (type === "fund") return await tefasSeries(symbol, start);
+    if (type === "fund") return await tefasFetch(symbol, periodForRange(start));
 
     let s2 = await yahooSeries(symbol, start, end);
     if ((!s2 || Object.keys(s2.prices).length === 0) && !symbol.includes(".")) {

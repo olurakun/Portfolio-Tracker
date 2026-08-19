@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cached } from "../../../lib/ttlCache";
+import { tefasLatestPrice, tefasPriceOn } from "../../../lib/tefas";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -89,62 +90,6 @@ async function fetchYahooHistoricalQuote(ticker: string, date: string): Promise<
   }
 }
 
-// TEFAS'ın gerçek (dokümante olmayan ama doğrulanmış) fon fiyat endpoint'i.
-// Kimlik doğrulaması gerektirmiyor; periyod=1 son ~1 aylık günlük fiyatları
-// döndürür, en güncel fiyat listenin son elemanı.
-async function fetchTefasPrice(fundCode: string): Promise<number | null> {
-  try {
-    const res = await fetch("https://www.tefas.gov.tr/api/funds/fonFiyatBilgiGetir", {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ fonKodu: fundCode, dil: 'TR', periyod: 1 }),
-      cache: 'no-store',
-    });
-    const data = await res.json();
-    const list = data?.resultList;
-    if (!Array.isArray(list)) return null;
-    // TEFAS, fiyatı henüz açıklanmamış günler için de kayıt döndürür ama fiyatı 0 olur.
-    // Bu yüzden sondan geriye doğru yürüyüp sıfır olmayan son fiyatı alıyoruz.
-    for (let i = list.length - 1; i >= 0; i--) {
-      const fiyat = list[i]?.fiyat;
-      if (typeof fiyat === "number" && fiyat > 0) return fiyat;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-// Belirli bir tarihe kadarki (o tarih dahil) en güncel TEFAS fon fiyatını bulur.
-// TEFAS'ın periyod parametresi keyfi bir sayı değil, sabit bir enum (1/3/6/12 ay)
-// kabul ediyor — istenen tarihi kapsayacak en küçük geçerli değer seçilir.
-async function fetchTefasHistoricalPrice(fundCode: string, date: string): Promise<number | null> {
-  try {
-    const target = new Date(`${date}T00:00:00Z`);
-    const now = new Date();
-    const monthsNeeded = (now.getFullYear() - target.getFullYear()) * 12 + (now.getMonth() - target.getMonth()) + 1;
-    const validPeriods = [1, 3, 6, 12];
-    const periyod = validPeriods.find(p => p >= monthsNeeded) ?? 12;
-    const res = await fetch("https://www.tefas.gov.tr/api/funds/fonFiyatBilgiGetir", {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ fonKodu: fundCode, dil: 'TR', periyod }),
-      cache: 'no-store',
-    });
-    const data = await res.json();
-    const list = data?.resultList;
-    if (!Array.isArray(list)) return null;
-    // Fiyatı açıklanmamış günler 0 olarak geldiği için sıfırları atlayıp
-    // hedef tarihe kadarki son geçerli fiyatı alıyoruz.
-    let best: number | null = null;
-    for (const entry of list) {
-      if (entry.tarih <= date && typeof entry.fiyat === "number" && entry.fiyat > 0) best = entry.fiyat;
-    }
-    return best;
-  } catch {
-    return null;
-  }
-}
 
 // Kur bütün varlıklar için aynı ama sayfa açılışında her varlık ayrı ayrı
 // soruyordu — 22 varlık = 22 dış çağrı (her biri 0,75–2 sn). Süreç içinde
@@ -242,7 +187,7 @@ async function getCurrentPrice(symbol: string, type: string | null): Promise<Pri
 
   // 3. FONLAR - TEFAS Doğrudan Erişim (şu an sadece TR fonları destekleniyor, her zaman TRY)
   if (type === "fund") {
-    const tryPrice = await fetchTefasPrice(symbol);
+    const tryPrice = await tefasLatestPrice(symbol);
     const usdPrice = tryPrice !== null && usdTryRate ? tryPrice / usdTryRate : null;
     return { price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 };
   }
@@ -282,7 +227,7 @@ async function getHistoricalPrice(symbol: string, type: string | null, date: str
 
   // 3. FONLAR
   if (type === "fund") {
-    const tryPrice = await fetchTefasHistoricalPrice(symbol, date);
+    const tryPrice = await tefasPriceOn(symbol, date);
     const usdPrice = tryPrice !== null && usdTryRate ? tryPrice / usdTryRate : null;
     return { price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 };
   }
