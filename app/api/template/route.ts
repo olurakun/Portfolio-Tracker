@@ -2,15 +2,15 @@ import ExcelJS from "exceljs";
 
 // İçe aktarma şablonunu uygulama içinde üretiyoruz ki parser'ın (app/api/import/route.ts)
 // beklediği başlıklarla her zaman birebir aynı kalsın — statik bir dosya zamanla eskir.
-const HEADERS = ['Sembol', 'İşlem', 'Adet', 'Fiyat', 'Tarih', 'Para Birimi'];
+const HEADERS = ['Sembol', 'İşlem', 'Adet', 'Fiyat', 'Tarih', 'Para Birimi', 'Aracı Kurum'];
 
 const EXAMPLE_ROWS = [
-  ['THYAO', 'Alım', 100, 305.25, '15.06.2026', 'TRY'],
-  ['AAPL', 'Alım', 10, 296.42, '20.06.2026', 'USD'],
-  ['THYAO', 'Satım', 40, 318.00, '01.07.2026', 'TRY'],
-  ['TLY', 'Alım', 5, 7369.52, '14.07.2026', 'TRY'],
-  ['XAU', 'Alım', 20, 6832.11, '01.08.2026', 'TRY'],
-  ['THYAO', 'Temettü', '', 125.50, '10.08.2026', 'TRY'],
+  ['THYAO', 'Alım', 100, 305.25, '15.06.2026', 'TRY', 'Midas'],
+  ['AAPL', 'Alım', 10, 296.42, '20.06.2026', 'USD', 'Midas'],
+  ['THYAO', 'Satım', 40, 318.00, '01.07.2026', 'TRY', 'Midas'],
+  ['TLY', 'Alım', 5, 7369.52, '14.07.2026', 'TRY', 'Midas'],
+  ['XAU', 'Alım', 20, 6832.11, '01.08.2026', 'TRY', 'Yapı Kredi'],
+  ['THYAO', 'Temettü', '', 125.50, '10.08.2026', 'TRY', 'Midas'],
 ];
 
 const NOTES = [
@@ -21,6 +21,7 @@ const NOTES = [
   ['Fiyat', 'Birim fiyat (adet başına), işlem para biriminde. Toplam tutar değil. Temettü satırlarında ise net temettünün TOPLAM tutarını yazın.'],
   ['Tarih', 'GG.AA.YYYY (15.06.2026) veya YYYY-AA-GG (2026-06-15).'],
   ['Para Birimi', 'Fiyatın hangi para biriminde olduğu: TRY veya USD. ABD borsalarındaki hisseler (AAPL, SCHD, UNH...) genelde USD, BIST hisseleri ve TEFAS fonları TRY. Boş bırakılırsa TRY varsayılır — yanlış olursa kâr/zarar tamamen hatalı çıkar.'],
+  ['Aracı Kurum', 'Varlığın tutulduğu kurum (Midas, Yapı Kredi...). Zorunlu değil — boş bırakırsanız içe aktarma ekranında tüm satırlara tek seferde atayabilirsiniz. Aynı sembolü farklı kurumlarda tutabilirsiniz, her işlem kendi kurumunda kalır.'],
   ['', ''],
   ['Not', 'Başlık satırını silmeyin. Örnek satırların yerine kendi işlemlerinizi yazın.'],
   ['Not', 'Portföyde olmayan bir sembol girerseniz, içe aktarma sırasında onu yeni varlık olarak eklemeniz istenecek.'],
@@ -39,6 +40,7 @@ export async function GET() {
     { key: 'price', width: 14 },
     { key: 'date', width: 14 },
     { key: 'currency', width: 14 },
+    { key: 'broker', width: 16 },
   ];
 
   const headerRow = sheet.addRow(HEADERS);

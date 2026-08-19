@@ -28,12 +28,12 @@ export const totals = { value: 3771483.81, valueUSD: 110450.9, unrealizedPL: 447
 export const emptyTotals = { value: 0, valueUSD: 0, unrealizedPL: 0, realizedPL: 0 };
 
 export const importRows: ParsedRow[] = [
-  { row: 2, symbol: 'THYAO', type: 'buy', quantity: 100, price: 305.25, date: '2026-06-15', currency: 'TRY' },
-  { row: 3, symbol: 'AAPL', type: 'buy', quantity: 10, price: 296.42, date: '2026-06-20', currency: 'USD' },
-  { row: 4, symbol: 'THYAO', type: 'sell', quantity: 40, price: 318, date: '2026-07-01', currency: 'TRY' },
-  { row: 5, symbol: 'TLY', type: 'buy', quantity: 5.234567, price: 7369.52, date: '2026-07-14', currency: 'TRY' },
-  { row: 6, symbol: 'THYAO', type: 'dividend', quantity: 1, price: 125.5, date: '2026-08-10', currency: 'TRY' },
-  { row: 7, symbol: 'SASA', type: 'buy', quantity: 0, price: 0, date: '', currency: 'TRY',
+  { row: 2, symbol: 'THYAO', type: 'buy', quantity: 100, price: 305.25, date: '2026-06-15', currency: 'TRY', broker: 'Midas' },
+  { row: 3, symbol: 'AAPL', type: 'buy', quantity: 10, price: 296.42, date: '2026-06-20', currency: 'USD', broker: 'Midas' },
+  { row: 4, symbol: 'THYAO', type: 'sell', quantity: 40, price: 318, date: '2026-07-01', currency: 'TRY', broker: 'Midas' },
+  { row: 5, symbol: 'TLY', type: 'buy', quantity: 5.234567, price: 7369.52, date: '2026-07-14', currency: 'TRY', broker: 'Midas' },
+  { row: 6, symbol: 'THYAO', type: 'dividend', quantity: 1, price: 125.5, date: '2026-08-10', currency: 'TRY', broker: 'Midas' },
+  { row: 7, symbol: 'SASA', type: 'buy', quantity: 0, price: 0, date: '', currency: 'TRY', broker: 'Midas',
     error: 'adet okunamadı, fiyat okunamadı, tarih okunamadı' },
 ];
 

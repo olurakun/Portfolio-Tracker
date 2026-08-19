@@ -25,6 +25,7 @@ const SYSTEM = `Sen bir işlem dökümü dönüştürücüsüsün. Aracı kurum,
 - price: ADET BAŞINA birim fiyat — toplam tutar değil.
 - date: işlem tarihi, YYYY-MM-DD.
 - currency: TRY veya USD.
+- broker: işlemin yapıldığı aracı kurum/banka adı.
 
 Kurallar:
 - Yalnızca GERÇEKLEŞMİŞ hareketleri al. İptal edilen, reddedilen, süresi dolan ve bekleyen emirler portföye girmemiştir; atla.
@@ -35,6 +36,7 @@ Kurallar:
 - TRY ve USD dışındaki para birimleri (EUR, GBP gibi) bu uygulamada desteklenmiyor; o hareketleri skipped'a yaz.
 - Nakit yatırma/çekme, virman, komisyon, vergi, faiz ve bakiye satırları varlık işlemi değildir; atla.
 - Hiçbir alanı tahmin etme ve belgede olmayan bir hareket üretme. Bir hareketin herhangi bir alanını okuyamıyorsan onu rows'a koymak yerine skipped'a yaz.
+- broker'ı belgenin başlığından veya antetinden al (ekstreler genelde tek bir kuruma aittir, o zaman her satıra aynı adı yaz). Kurumu belirleyemiyorsan boş bırak — kullanıcı içe aktarma ekranında tek seferde atayabiliyor. UYDURMA.
 - sourceTransactionCount: belgede saydığın gerçekleşmiş alım/satım/temettü hareketi sayısı. Bu sayı rows ile karşılaştırılıp kullanıcıya gösterilecek, o yüzden dürüst say.
 - skipped: atladığın her hareket için tek cümlelik sebep (ör. "12.03.2026 ASELS satım — emir iptal edilmiş").`;
 
@@ -52,8 +54,9 @@ const SCHEMA = {
           price: { type: "number" },
           date: { type: "string" },
           currency: { type: "string", enum: ["TRY", "USD"] },
+          broker: { type: "string" },
         },
-        required: ["symbol", "type", "quantity", "price", "date", "currency"],
+        required: ["symbol", "type", "quantity", "price", "date", "currency", "broker"],
         additionalProperties: false,
       },
     },
@@ -65,7 +68,7 @@ const SCHEMA = {
 } as const;
 
 type ConversionOutput = {
-  rows: { symbol: string; type: string; quantity: number; price: number; date: string; currency: string }[];
+  rows: { symbol: string; type: string; quantity: number; price: number; date: string; currency: string; broker: string }[];
   skipped: string[];
   sourceTransactionCount: number;
 };

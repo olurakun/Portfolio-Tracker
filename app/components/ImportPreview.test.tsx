@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ImportPreview, { type ImportMeta } from './ImportPreview';
 import type { ParsedRow } from '../../lib/importParse';
@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 const row = (o: Partial<ParsedRow> = {}): ParsedRow => ({
   row: 2, symbol: 'THYAO', type: 'buy', quantity: 100, price: 305.25,
-  date: '2026-06-15', currency: 'TRY', ...o,
+  date: '2026-06-15', currency: 'TRY', broker: '', ...o,
 });
 
 const defaults = {
@@ -25,6 +25,9 @@ const defaults = {
   onNewSymbolType: () => {},
   currencies: {} as Record<string, string>,
   onCurrencyChange: () => {},
+  knownBrokers: ['Midas', 'Yapı Kredi'],
+  brokerOverride: null as string | null,
+  onBrokerOverrideChange: () => {},
   busy: false,
   onCancel: () => {},
   onConfirm: () => {},
@@ -120,7 +123,7 @@ describe('ImportPreview', () => {
   it('para birimi değişikliğini yukarı bildirir', async () => {
     const onCurrencyChange = vi.fn();
     setup({ currencies: { THYAO: 'TRY' }, onCurrencyChange });
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'USD');
+    await userEvent.selectOptions(screen.getByLabelText('THYAO para birimi'), 'USD');
     expect(onCurrencyChange).toHaveBeenCalledWith('THYAO', 'USD');
   });
 
@@ -128,7 +131,7 @@ describe('ImportPreview', () => {
     const onNewSymbolChoice = vi.fn();
     setup({ newSymbolChoices: { TLY: 'create' }, newSymbolTypes: { TLY: 'fund' }, onNewSymbolChoice });
     expect(screen.getByText(/Portföyünde olmayan semboller/)).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getAllByRole('combobox')[0], 'skip');
+    await userEvent.selectOptions(screen.getByLabelText('TLY için karar'), 'skip');
     expect(onNewSymbolChoice).toHaveBeenCalledWith('TLY', 'skip');
   });
 
@@ -136,5 +139,64 @@ describe('ImportPreview', () => {
     setup({ busy: true });
     expect(confirmButton()).toBeDisabled();
     expect(confirmButton()).toHaveTextContent('Aktarılıyor');
+  });
+});
+
+describe('ImportPreview — aracı kurum', () => {
+  const withBroker = [row({ broker: 'Midas' }), row({ row: 3, broker: 'Midas' })];
+
+  // Ekstre genelde tek bir kuruma ait; dosyada yoksa tek seferde atanabilmeli.
+  it('dosyada kurum yoksa uyarı rengiyle seçim ister', () => {
+    const { container } = setup({ rows: [row()], duplicateFlags: [false] });
+    expect(screen.getByText(/tüm satırlara birden atayabilirsin/)).toBeInTheDocument();
+    expect(container.querySelector('.border-amber-700\\/50')).toBeTruthy();
+  });
+
+  it('kurum seçilince uyarı kalkar', () => {
+    const { container } = setup({ rows: [row()], duplicateFlags: [false], brokerOverride: 'Midas' });
+    expect(container.querySelector('.border-amber-700\\/50')).toBeFalsy();
+  });
+
+  it('dosyadaki kurumları satırlarda gösterir', () => {
+    setup({ rows: withBroker, duplicateFlags: [false, false] });
+    expect(screen.getAllByText('Midas').length).toBeGreaterThan(0);
+  });
+
+  it('dosyada kurum varsa "dosyadaki değerler" seçeneği çıkar', () => {
+    setup({ rows: withBroker, duplicateFlags: [false, false] });
+    expect(screen.getByRole('option', { name: 'Dosyadaki değerler' })).toBeInTheDocument();
+  });
+
+  it('dosyada kurum yoksa "dosyadaki değerler" seçeneği çıkmaz', () => {
+    setup({ rows: [row()], duplicateFlags: [false] });
+    expect(screen.queryByRole('option', { name: 'Dosyadaki değerler' })).not.toBeInTheDocument();
+  });
+
+  // Seçim yapılınca dosyadaki değerler değil, seçilen kurum geçerli olmalı.
+  // Kontrol SATIRLARDA yapılıyor; "Midas" açılır listede seçenek olarak
+  // durmaya devam eder, orada olması doğru.
+  it('seçilen kurum dosyadaki değerlerin yerine geçer', () => {
+    setup({ rows: withBroker, duplicateFlags: [false, false], brokerOverride: 'Yapı Kredi' });
+    const body = screen.getAllByRole('rowgroup')[1];
+    expect(within(body).getAllByText('Yapı Kredi')).toHaveLength(2);
+    expect(within(body).queryByText('Midas')).not.toBeInTheDocument();
+  });
+
+  it('portföyde geçen kurumları öneri olarak sunar', () => {
+    setup({ rows: [row()], duplicateFlags: [false] });
+    expect(screen.getByRole('option', { name: 'Yapı Kredi' })).toBeInTheDocument();
+  });
+
+  it('kurum seçimini yukarı bildirir', async () => {
+    const onBrokerOverrideChange = vi.fn();
+    setup({ rows: [row()], duplicateFlags: [false], onBrokerOverrideChange });
+    await userEvent.selectOptions(screen.getByLabelText('Aracı kurum'), 'Midas');
+    expect(onBrokerOverrideChange).toHaveBeenCalledWith('Midas');
+  });
+
+  // Kurum eksik olması aktarmayı engellememeli; sonradan toplu doldurulabiliyor.
+  it('kurum seçilmese de aktarmaya izin verir', () => {
+    setup({ rows: [row()], duplicateFlags: [false] });
+    expect(confirmButton()).toBeEnabled();
   });
 });

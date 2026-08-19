@@ -1,6 +1,7 @@
 "use client";
 
 import type { ParsedRow } from "../../lib/importParse";
+import { normalizeBroker, UNASSIGNED } from "../../lib/brokers";
 
 export type ImportMeta = { skipped: string[]; sourceTransactionCount: number | null };
 export type DupePolicy = 'skip' | 'include';
@@ -16,7 +17,8 @@ const TYPE_LABEL: Record<string, string> = { buy: 'Alım', sell: 'Satım', divid
 export default function ImportPreview({
   rows, duplicateFlags, dupePolicy, onDupePolicyChange, meta, negatives,
   newSymbolChoices, onNewSymbolChoice, newSymbolTypes, onNewSymbolType,
-  currencies, onCurrencyChange, busy, onCancel, onConfirm,
+  currencies, onCurrencyChange, knownBrokers, brokerOverride, onBrokerOverrideChange,
+  busy, onCancel, onConfirm,
 }: {
   rows: ParsedRow[];
   duplicateFlags: boolean[];
@@ -30,6 +32,11 @@ export default function ImportPreview({
   onNewSymbolType: (symbol: string, type: string) => void;
   currencies: Record<string, string>;
   onCurrencyChange: (symbol: string, currency: string) => void;
+  /** Portföyde daha önce geçen kurumlar; öneri olarak sunulur. */
+  knownBrokers: string[];
+  /** null = dosyadaki değerler kullanılsın. Aksi hâlde TÜM satırlara bu yazılır. */
+  brokerOverride: string | null;
+  onBrokerOverrideChange: (broker: string | null) => void;
   busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -39,6 +46,12 @@ export default function ImportPreview({
   const willImport = rows.filter((r, i) => !isSkipped(r, i)).length;
   const errorCount = rows.filter(r => r.error).length;
   const duplicateCount = duplicateFlags.filter(Boolean).length;
+
+  const fileHasBrokers = rows.some(r => normalizeBroker(r.broker));
+  const brokerFor = (r: ParsedRow) => (brokerOverride === null ? normalizeBroker(r.broker) : brokerOverride);
+  // Dosyada kurum yoksa ve kullanıcı da seçmediyse uyarı: aktarma engellenmiyor
+  // ama kırılım sonradan elle doldurulmak zorunda kalır.
+  const brokerMissing = !fileHasBrokers && !brokerOverride;
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 sm:p-6 z-50">
@@ -140,6 +153,7 @@ export default function ImportPreview({
                     <select
                       value={newSymbolChoices[sym]}
                       onChange={(e) => onNewSymbolChoice(sym, e.target.value as 'create' | 'skip')}
+                      aria-label={`${sym} için karar`}
                       className="p-1 rounded bg-gray-700 border border-gray-600 text-sm"
                     >
                       <option value="create">Yeni varlık oluştur</option>
@@ -149,6 +163,7 @@ export default function ImportPreview({
                       <select
                         value={newSymbolTypes[sym] || 'stock'}
                         onChange={(e) => onNewSymbolType(sym, e.target.value)}
+                        aria-label={`${sym} varlık tipi`}
                         className="p-1 rounded bg-gray-700 border border-gray-600 text-sm"
                       >
                         <option value="stock">Hisse</option>
@@ -162,6 +177,37 @@ export default function ImportPreview({
               </div>
             </div>
           )}
+
+          <div className={`border rounded p-3 ${
+            brokerMissing ? 'bg-amber-950/30 border-amber-700/50' : 'bg-gray-900/50 border-gray-700'
+          }`}>
+            <div className="font-bold text-sm mb-1">Aracı kurum</div>
+            <p className="text-xs text-gray-400 mb-2">
+              {fileHasBrokers
+                ? 'Dosyada kurum bilgisi var. İstersen tümünü tek bir kuruma çevirebilirsin.'
+                : 'Ekstre genelde tek bir kuruma aittir; buradan tüm satırlara birden atayabilirsin.'}
+            </p>
+            <select
+              value={brokerOverride === null ? '__file__' : (brokerOverride || UNASSIGNED)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === '__file__') { onBrokerOverrideChange(null); return; }
+                if (v === '__new__') {
+                  const typed = normalizeBroker(prompt('Aracı kurum adı:') ?? '');
+                  if (typed) onBrokerOverrideChange(typed);
+                  return;
+                }
+                onBrokerOverrideChange(v);
+              }}
+              aria-label="Aracı kurum"
+              className="p-2 rounded bg-gray-700 border border-gray-600 text-sm"
+            >
+              {fileHasBrokers && <option value="__file__">Dosyadaki değerler</option>}
+              <option value={UNASSIGNED}>— Belirtilmemiş</option>
+              {knownBrokers.filter(Boolean).map(b => <option key={b} value={b}>{b}</option>)}
+              <option value="__new__">+ Yeni kurum…</option>
+            </select>
+          </div>
 
           {Object.keys(currencies).length > 0 && (
             <div className="bg-gray-900/50 border border-gray-700 rounded p-3">
@@ -177,6 +223,7 @@ export default function ImportPreview({
                     <select
                       value={currencies[sym]}
                       onChange={(e) => onCurrencyChange(sym, e.target.value)}
+                      aria-label={`${sym} para birimi`}
                       className="p-1 rounded bg-gray-700 border border-gray-600 text-xs"
                     >
                       <option value="TRY">TRY ₺</option>
@@ -198,6 +245,7 @@ export default function ImportPreview({
                   <th className="p-2 text-right">Adet</th>
                   <th className="p-2 text-right">Fiyat</th>
                   <th className="p-2">Tarih</th>
+                  <th className="p-2">Aracı</th>
                   <th className="p-2"></th>
                 </tr>
               </thead>
@@ -219,6 +267,9 @@ export default function ImportPreview({
                         </span>
                       </td>
                       <td className="p-2">{r.error ? r.error : r.date}</td>
+                      <td className="p-2 text-xs text-gray-400 whitespace-nowrap">
+                        {brokerFor(r) || <span className="text-gray-600">—</span>}
+                      </td>
                       <td className="p-2">
                         {duplicateFlags[i] && (
                           <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 text-amber-300/90 whitespace-nowrap">

@@ -43,6 +43,7 @@ export default function DevPreviewClient() {
   const [types, setTypes] = useState<Record<string, string>>({ TLY: 'fund' });
   const [choice, setChoice] = useState<AssetChoice>({ symbol: '', name: '', type: 'stock' });
   const [broker, setBroker] = useState<string | null>(null);
+  const [importBroker, setImportBroker] = useState<string | null>(null);
 
   const isEmptyCase = tableCase === 'empty' || tableCase === 'loading';
   // Yinelenen bayrakları senaryoya göre: 1. ve 3. satır zaten portföyde varmış gibi.
@@ -144,6 +145,9 @@ export default function DevPreviewClient() {
           onNewSymbolType={(sym, type) => setTypes(prev => ({ ...prev, [sym]: type }))}
           currencies={currencies}
           onCurrencyChange={(sym, cur) => setCurrencies(prev => ({ ...prev, [sym]: cur }))}
+          knownBrokers={['Midas', 'Yapı Kredi']}
+          brokerOverride={importBroker}
+          onBrokerOverrideChange={setImportBroker}
           busy={false}
           onCancel={() => setImportCase(null)}
           onConfirm={() => setImportCase(null)}

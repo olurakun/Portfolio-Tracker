@@ -83,7 +83,7 @@ function Home({ session }: { session: Session }) {
 
   // Mevcut kayıtların aracısını toplu doldurmak için: bir varlığın TÜM
   // işlemlerine tek seferde aracı atar. 92+ işlemi elle düzenlemek gerçekçi değil.
-  const setAssetBroker = async (asset: any, broker: string) => {
+  const setAssetBroker = async (asset: { id: string | number }, broker: string) => {
     const value = normalizeBroker(broker) || null;
     const { error } = await supabase
       .from("transactions")
@@ -165,6 +165,8 @@ function Home({ session }: { session: Session }) {
   // Yinelenen satırlar varsayılan olarak atlanır ama karar kullanıcınındır:
   // aynı gün aynı fiyattan iki ayrı alım gerçekten olabilir.
   const [importDupes, setImportDupes] = useState<'skip' | 'include'>('skip');
+  // null = dosyadaki değerler; aksi hâlde tüm satırlara bu kurum yazılır.
+  const [importBroker, setImportBroker] = useState<string | null>(null);
 
   // Dönem (tarih aralığı) K/Z state'leri
   const [rangeStart, setRangeStart] = useState("");
@@ -378,6 +380,10 @@ function Home({ session }: { session: Session }) {
   ) => {
     setImportRows(rows);
     setImportMeta(meta);
+    // Dosyada kurum yoksa ve portföyde tek kurum varsa onu öneriyoruz.
+    const fileHasBroker = rows.some(r => normalizeBroker(r.broker));
+    const knownBrokerNames = brokersOf(transactions).filter(Boolean);
+    setImportBroker(fileHasBroker ? null : (knownBrokerNames.length === 1 ? knownBrokerNames[0] : null));
 
     const known = new Set(assets.map(a => a.symbol.toUpperCase()));
     const choices: Record<string, 'create' | 'skip'> = {};
@@ -487,6 +493,8 @@ function Home({ session }: { session: Session }) {
         price: r.price,
         date: r.date,
         currency: importCurrencies[r.symbol] || r.currency || 'TRY',
+        // Seçim yapılmadıysa dosyadaki değer kullanılır.
+        broker: (importBroker === null ? normalizeBroker(r.broker) : importBroker) || null,
       }));
 
     if (toInsert.length > 0) await supabase.from("transactions").insert(toInsert);
@@ -494,6 +502,7 @@ function Home({ session }: { session: Session }) {
     setImportRows(null);
     setImportMeta(null);
     setImportDupes('skip');
+    setImportBroker(null);
     setNewSymbolChoices({});
     setNewSymbolTypes({});
     setImportCurrencies({});
@@ -534,6 +543,7 @@ function Home({ session }: { session: Session }) {
     setImportRows(null);
     setImportMeta(null);
     setImportDupes('skip');
+    setImportBroker(null);
     setImportError("");
     setNewSymbolChoices({});
     setNewSymbolTypes({});
@@ -959,6 +969,9 @@ function Home({ session }: { session: Session }) {
           onNewSymbolType={(sym, type) => setNewSymbolTypes(prev => ({ ...prev, [sym]: type }))}
           currencies={importCurrencies}
           onCurrencyChange={(sym, cur) => setImportCurrencies(prev => ({ ...prev, [sym]: cur }))}
+          knownBrokers={brokerList}
+          brokerOverride={importBroker}
+          onBrokerOverrideChange={setImportBroker}
           busy={importBusy}
           onCancel={cancelImport}
           onConfirm={confirmImport}

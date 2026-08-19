@@ -76,8 +76,19 @@ describe('buildRow', () => {
   it('geçerli satırı normalleştirir', () => {
     expect(buildRow(2, base)).toEqual({
       row: 2, symbol: 'THYAO', type: 'buy', quantity: 100,
-      price: 305.25, date: '2026-06-15', currency: 'TRY', error: undefined,
+      price: 305.25, date: '2026-06-15', currency: 'TRY', broker: '', error: undefined,
     });
+  });
+
+  it('aracı kurumu okur ve normalleştirir', () => {
+    expect(buildRow(2, { ...base, broker: '  Yapı   Kredi ' })!.broker).toBe('Yapı Kredi');
+  });
+
+  // Aracı zorunlu değil: dosyada yoksa satır hatalı sayılmamalı.
+  it('aracı yoksa satırı hatalı saymaz', () => {
+    const row = buildRow(2, base)!;
+    expect(row.broker).toBe('');
+    expect(row.error).toBeUndefined();
   });
 
   it('sembolsüz satırı yok sayar', () => {
@@ -148,6 +159,14 @@ describe('gridToRows', () => {
     expect(missingColumns).toEqual(['type', 'price', 'date']);
   });
 
+  it('aracı kurum sütununu tanır', () => {
+    const { rows } = gridToRows([
+      ['Sembol', 'İşlem', 'Adet', 'Fiyat', 'Tarih', 'Aracı Kurum'],
+      ['THYAO', 'Alım', '100', '305,25', '15.06.2026', 'Midas'],
+    ]);
+    expect(rows[0].broker).toBe('Midas');
+  });
+
   it('boş sembollü satırları atlar', () => {
     const { rows } = gridToRows([...grid, ['', '', '', '', '', '']]);
     expect(rows).toHaveLength(2);
@@ -167,7 +186,8 @@ describe('findDuplicateRows', () => {
     { symbol: 'AAPL', type: 'buy', date: '2026-06-20', quantity: 10, price: 296.42, currency: 'USD' },
   ];
   const row = (o: Partial<ParsedRow>): ParsedRow => ({
-    row: 2, symbol: 'THYAO', type: 'buy', quantity: 100, price: 305.25, date: '2026-06-15', currency: 'TRY', ...o,
+    row: 2, symbol: 'THYAO', type: 'buy', quantity: 100, price: 305.25,
+    date: '2026-06-15', currency: 'TRY', broker: '', ...o,
   });
 
   it('portföyde zaten olan satırı işaretler', () => {
@@ -198,6 +218,12 @@ describe('findDuplicateRows', () => {
   it('veritabanında iki tane varsa dosyadaki iki satırı da işaretler', () => {
     const iki = [...existing, existing[0]];
     expect(findDuplicateRows(iki, [row({}), row({ row: 3 })])).toEqual([true, true]);
+  });
+
+  // Aynı işlem önce aracısız aktarılıp sonra toplu doldurulmuş olabilir;
+  // aracı anahtara girseydi ekstrenin ikinci yüklemesi ikiye katlanırdı.
+  it('aracı kurum farkı yinelenmiş saymayı bozmaz', () => {
+    expect(findDuplicateRows(existing, [row({ broker: 'Midas' })])).toEqual([true]);
   });
 
   // Hatalı satırlar zaten aktarılmıyor; yinelenmiş olarak da sayılmamalı,

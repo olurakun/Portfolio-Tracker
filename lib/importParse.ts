@@ -4,6 +4,7 @@
 // geçerlilik kuralları tek yerde tanımlı kalır.
 
 import { fold } from './turkish';
+import { normalizeBroker } from './brokers';
 export { fold };
 
 export type TxType = 'buy' | 'sell' | 'dividend';
@@ -16,6 +17,8 @@ export type ParsedRow = {
   price: number;
   date: string;
   currency: string;
+  /** Aracı kurum. Dosyada yoksa boş kalır; önizlemede tek seferde atanabilir. */
+  broker: string;
   error?: string;
 };
 
@@ -26,6 +29,7 @@ export const HEADER_ALIASES: Record<string, string[]> = {
   price: ['fiyat', 'price', 'birim fiyat', 'birim fiyatı', 'birim fiyati', 'tutar/adet'],
   date: ['tarih', 'date', 'işlem tarihi', 'islem tarihi'],
   currency: ['para birimi', 'parabirimi', 'currency', 'döviz', 'doviz', 'kur', 'birim'],
+  broker: ['aracı kurum', 'araci kurum', 'aracı', 'araci', 'kurum', 'broker', 'banka', 'hesap', 'platform'],
 };
 
 // Fiyatın hangi para biriminde olduğu kritik: ABD hisseleri USD, BIST hisseleri TRY
@@ -105,6 +109,7 @@ export type RawRow = {
   price: unknown;
   date: unknown;
   currency?: unknown;
+  broker?: unknown;
 };
 
 /**
@@ -138,6 +143,8 @@ export function buildRow(rowNumber: number, raw: RawRow): ParsedRow | null {
     date: date ?? '',
     // Para birimi belirtilmemişse TRY varsayılır; kullanıcı önizlemede değiştirebilir.
     currency: currency ?? 'TRY',
+    // Aracı kurum zorunlu değil: dosyada yoksa önizlemede tek seferde atanır.
+    broker: normalizeBroker(raw.broker),
     error: problems.length > 0 ? problems.join(', ') : undefined,
   };
 }
@@ -167,6 +174,7 @@ export function gridToRows(grid: unknown[][]): { rows: ParsedRow[]; missingColum
       price: cells[columnIndex.price],
       date: cells[columnIndex.date],
       currency: 'currency' in columnIndex ? cells[columnIndex.currency] : undefined,
+      broker: 'broker' in columnIndex ? cells[columnIndex.broker] : undefined,
     });
     if (row) rows.push(row);
   }
@@ -202,6 +210,10 @@ function txKey(tx: { symbol: string; type: string; date: string; quantity: numbe
 
 /**
  * Dosyadaki hangi satırların portföyde ZATEN bulunduğunu işaretler.
+ *
+ * Aracı kurum bilerek anahtara DAHİL DEĞİL: aynı işlem önce aracısız
+ * aktarılmış, sonra toplu doldurulmuş olabilir. Aracıyı da anahtara koysak
+ * aynı ekstrenin ikinci yüklemesi yinelenmiş sayılmaz ve işlem ikiye katlanırdı.
  *
  * Aracı kurumlar ekstreyi tarih aralığına göre veriyor ve aralıklar sık sık
  * örtüşüyor; aynı işlemin ikinci kez eklenmesi maliyeti sessizce bozar.
