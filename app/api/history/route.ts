@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readCache, writeCache, purgeCache, hasRestatement, missingFrom, cacheCutoff } from "../../../lib/priceCache";
+import { readCache, writeCache, purgeCache, hasRestatement } from "../../../lib/priceCache";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -79,75 +79,60 @@ async function frankfurterSeries(from: string, start: string, end: string) {
   return { currency: 'TRY', prices };
 }
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const symbol = searchParams.get("symbol")?.toUpperCase().trim();
-  const type = searchParams.get("type");
-  const start = searchParams.get("start");
-  const end = searchParams.get("end");
+type HistoryResult = { currency: string; prices: Record<string, number>; cached?: boolean; restated?: boolean };
 
-  if (!symbol || !start || !end) {
-    return NextResponse.json({ currency: 'TRY', prices: {} });
-  }
+async function seriesFor(symbolRaw: string, type: string | null, start: string, end: string): Promise<HistoryResult> {
+  const symbol = symbolRaw.toUpperCase().trim();
 
   // Ana para birimi kendi cinsinden hep 1 eder; ne dış servise ne önbelleğe gerek var.
   if (type === "currency" && (CURRENCY_ALIASES[symbol] ?? symbol) === 'TRY') {
-    return NextResponse.json({ currency: 'TRY', prices: { [start]: 1, [end]: 1 }, flat: 1 });
+    return { currency: 'TRY', prices: { [start]: 1, [end]: 1 } };
   }
 
-  // Kaynaktan veri çeker. `from` verilirse yalnızca o tarihten sonrası istenir —
-  // önbellek eskiyi zaten kapsıyorsa kaynağa küçük bir pencere sorulur.
-  const fetchFromSource = async (from: string) => {
+  const fetchFromSource = async () => {
     if (type === "currency") {
-      const code = CURRENCY_ALIASES[symbol] ?? symbol;
-      return await frankfurterSeries(code, from, end);
+      return await frankfurterSeries(CURRENCY_ALIASES[symbol] ?? symbol, start, end);
     }
     if (type === "metal") {
       const spec = METAL_SPECS[symbol];
       if (!spec) return null;
-      const s = await yahooSeries(spec.ticker, from, end);
-      if (!s) return null;
+      const s2 = await yahooSeries(spec.ticker, start, end);
+      if (!s2) return null;
       if (spec.perGram) {
-        for (const d of Object.keys(s.prices)) s.prices[d] /= TROY_OUNCE_IN_GRAMS;
+        for (const d of Object.keys(s2.prices)) s2.prices[d] /= TROY_OUNCE_IN_GRAMS;
       }
-      return s;
+      return s2;
     }
-    if (type === "fund") {
-      return await tefasSeries(symbol, from);
+    if (type === "fund") return await tefasSeries(symbol, start);
+
+    let s2 = await yahooSeries(symbol, start, end);
+    if ((!s2 || Object.keys(s2.prices).length === 0) && !symbol.includes(".")) {
+      s2 = await yahooSeries(`${symbol}.IS`, start, end);
     }
-    let s = await yahooSeries(symbol, from, end);
-    if ((!s || Object.keys(s.prices).length === 0) && !symbol.includes(".")) {
-      s = await yahooSeries(`${symbol}.IS`, from, end);
-    }
-    return s;
+    return s2;
   };
 
   try {
     const assetType = type ?? 'stock';
-    const cached = await readCache(symbol, assetType, start, end);
-    const cutoff = cacheCutoff();
 
-    // Önbellek aralığın başını kapsıyorsa kaynaktan sadece eksik kısım istenir.
-    // Kapsamıyorsa (veya hiç yoksa) tamamı çekilir.
-    const from = missingFrom(cached.prices, start, cutoff) ?? start;
-    const fresh = await fetchFromSource(from);
+    // Önbellek okuma ve kaynak çekme PARALEL yapılır. Sıra ile yapıldığında
+    // ikisinin gecikmesi toplanıyordu ve önbellek isteği hızlandırmak yerine
+    // yavaşlatıyordu (0,47 sn → 0,85 sn). Paralelde maliyet yavaş olanın kadar.
+    const [cached, fresh] = await Promise.all([
+      readCache(symbol, assetType, start, end),
+      fetchFromSource(),
+    ]);
 
     if (!fresh) {
       // Kaynak cevap vermedi ama elimizde önbellek varsa onu döndürmek,
       // boş grafik göstermekten iyidir.
-      return NextResponse.json({
-        currency: cached.currency ?? 'TRY',
-        prices: cached.prices,
-        cached: true,
-      });
+      return { currency: cached.currency ?? 'TRY', prices: cached.prices, cached: true };
     }
 
     // Bölünme / bedelsiz / temettü düzeltmesi kontrolü: kaynak geçmişi geriye
     // dönük değiştirdiyse önbellek artık yanlış, atılır.
     const restated = hasRestatement(cached.prices, fresh.prices);
-    if (restated) {
-      await purgeCache(symbol, assetType);
-    }
+    if (restated) await purgeCache(symbol, assetType);
 
     const merged: Record<string, number> = restated ? {} : { ...cached.prices };
     for (const [d, p] of Object.entries(fresh.prices)) merged[d] = p;
@@ -155,8 +140,34 @@ export async function GET(request: Request) {
     // Yazma isteği yanıtı bekletmesin.
     void writeCache(symbol, assetType, fresh.currency, restated ? fresh.prices : merged);
 
-    return NextResponse.json({ currency: fresh.currency, prices: merged, restated });
+    return { currency: fresh.currency, prices: merged, restated };
   } catch {
-    return NextResponse.json({ currency: 'TRY', prices: {} });
+    return { currency: 'TRY', prices: {} };
   }
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const start = searchParams.get("start");
+  const end = searchParams.get("end");
+  if (!start || !end) return NextResponse.json({ currency: 'TRY', prices: {} });
+
+  // TOPLU İSTEK: "SEMBOL:tip,SEMBOL:tip". Tarayıcı aynı sunucuya ~6 eşzamanlı
+  // bağlantı açtığı için varlık başına ayrı istek kuyruk oluşturuyordu.
+  const batch = searchParams.get("symbols");
+  if (batch) {
+    const items = batch.split(",").map(part => {
+      const [sym, t] = part.split(":");
+      return { symbol: sym ?? "", type: t ?? null };
+    }).filter(i => i.symbol);
+
+    const rows = await Promise.all(
+      items.map(async i => [i.symbol.toUpperCase().trim(), await seriesFor(i.symbol, i.type, start, end)] as const)
+    );
+    return NextResponse.json({ series: Object.fromEntries(rows) });
+  }
+
+  const symbol = searchParams.get("symbol");
+  if (!symbol) return NextResponse.json({ currency: 'TRY', prices: {} });
+  return NextResponse.json(await seriesFor(symbol, searchParams.get("type"), start, end));
 }

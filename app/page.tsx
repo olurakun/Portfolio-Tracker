@@ -188,9 +188,11 @@ function Home({ session }: { session: Session }) {
     if (!rangeStart || !rangeEnd) { alert("Başlangıç ve bitiş tarihi seçmelisin."); return; }
     setRangeLoading(true);
     const today = new Date().toISOString().slice(0, 10);
-    let total = 0;
 
-    for (const asset of assets) {
+    // Önce her varlığın adet ve nakit akışı hesaplanır; fiyat isteği sonra
+    // TEK seferde toplu atılır. Önceden döngü içinde varlık başına iki ayrı
+    // istek sırayla bekleniyordu.
+    const rows = assets.map(asset => {
       const assetTx = transactions.filter(tx => tx.asset_id === asset.id);
       let qtyBeforeStart = 0, qtyAtEnd = 0, buysInRange = 0, sellsInRange = 0;
 
@@ -208,30 +210,35 @@ function Home({ session }: { session: Session }) {
           else sellsInRange += qty * txPrice; // satış ve temettü: nakit girişi
         }
       }
+      return { asset, qtyBeforeStart, qtyAtEnd, buysInRange, sellsInRange };
+    });
 
-      let priceStart = 0;
-      if (qtyBeforeStart !== 0) {
-        try {
-          const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&date=${rangeStart}`);
-          const data = await res.json();
-          priceStart = data.price || 0;
-        } catch { priceStart = 0; }
+    const fetchBatch = async (date: string, needed: typeof rows) => {
+      if (needed.length === 0) return {} as Record<string, { price: number }>;
+      const spec = needed.map(r => `${r.asset.symbol}:${r.asset.type}`).join(',');
+      try {
+        const res = await fetch(`/api/price?symbols=${encodeURIComponent(spec)}&date=${date}`);
+        return (await res.json()).prices ?? {};
+      } catch {
+        return {};
       }
+    };
 
-      let priceEnd = 0;
-      if (qtyAtEnd !== 0) {
-        if (rangeEnd >= today) {
-          priceEnd = currentPrices[asset.id] || 0;
-        } else {
-          try {
-            const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&date=${rangeEnd}`);
-            const data = await res.json();
-            priceEnd = data.price || 0;
-          } catch { priceEnd = 0; }
-        }
-      }
+    const needEnd = rangeEnd < today ? rows.filter(r => r.qtyAtEnd !== 0) : [];
+    const [startPrices, endPrices] = await Promise.all([
+      fetchBatch(rangeStart, rows.filter(r => r.qtyBeforeStart !== 0)),
+      fetchBatch(rangeEnd, needEnd),
+    ]);
 
-      total += (qtyAtEnd * priceEnd - qtyBeforeStart * priceStart) - buysInRange + sellsInRange;
+    let total = 0;
+    for (const r of rows) {
+      const priceStart = r.qtyBeforeStart !== 0
+        ? (startPrices[r.asset.symbol.toUpperCase()]?.price ?? 0) : 0;
+      const priceEnd = r.qtyAtEnd === 0 ? 0
+        : rangeEnd >= today
+          ? (currentPrices[r.asset.id] || 0)
+          : (endPrices[r.asset.symbol.toUpperCase()]?.price ?? 0);
+      total += (r.qtyAtEnd * priceEnd - r.qtyBeforeStart * priceStart) - r.buysInRange + r.sellsInRange;
     }
 
     setRangeResult(total);
@@ -243,21 +250,19 @@ function Home({ session }: { session: Session }) {
   const fetchPrices = async () => {
     if (assets.length === 0) return;
     setLoading(true);
-    const results = await Promise.all(assets.map(async (asset) => {
-      try {
-        const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&_=${Date.now()}`);
-        const data = await res.json();
-        return { id: asset.id, price: data.price || 0, priceUSD: data.priceUSD || 0 };
-      } catch {
-        return { id: asset.id, price: 0, priceUSD: 0 };
-      }
-    }));
-
     const newPrices: Record<string, number> = {};
     const newPricesUSD: Record<string, number> = {};
-    for (const r of results) {
-      newPrices[r.id] = r.price;
-      newPricesUSD[r.id] = r.priceUSD;
+    try {
+      const spec = assets.map(a => `${a.symbol}:${a.type}`).join(',');
+      const res = await fetch(`/api/price?symbols=${encodeURIComponent(spec)}&_=${Date.now()}`);
+      const data = await res.json();
+      for (const asset of assets) {
+        const p = data.prices?.[asset.symbol.toUpperCase()];
+        newPrices[asset.id] = p?.price || 0;
+        newPricesUSD[asset.id] = p?.priceUSD || 0;
+      }
+    } catch {
+      for (const asset of assets) { newPrices[asset.id] = 0; newPricesUSD[asset.id] = 0; }
     }
     setCurrentPrices(newPrices);
     setCurrentPricesUSD(newPricesUSD);
@@ -367,20 +372,20 @@ function Home({ session }: { session: Session }) {
     if (!asOfDate || assets.length === 0) { setAsOfPrices({}); setAsOfPricesUSD({}); return; }
     let cancelled = false;
     setAsOfLoading(true);
-    Promise.all(assets.map(async (asset) => {
-      try {
-        const res = await fetch(`/api/price?symbol=${asset.symbol}&type=${asset.type}&date=${asOfDate}`);
-        const data = await res.json();
-        return { id: asset.id, price: data.price || 0, priceUSD: data.priceUSD || 0 };
-      } catch {
-        return { id: asset.id, price: 0, priceUSD: 0 };
-      }
-    })).then(results => {
-      if (cancelled) return;
-      const p: Record<string, number> = {}, u: Record<string, number> = {};
-      for (const r of results) { p[r.id] = r.price; u[r.id] = r.priceUSD; }
-      setAsOfPrices(p); setAsOfPricesUSD(u); setAsOfLoading(false);
-    });
+    const spec = assets.map(a => `${a.symbol}:${a.type}`).join(',');
+    fetch(`/api/price?symbols=${encodeURIComponent(spec)}&date=${asOfDate}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        const p: Record<string, number> = {}, u: Record<string, number> = {};
+        for (const asset of assets) {
+          const row = data.prices?.[asset.symbol.toUpperCase()];
+          p[asset.id] = row?.price || 0;
+          u[asset.id] = row?.priceUSD || 0;
+        }
+        setAsOfPrices(p); setAsOfPricesUSD(u); setAsOfLoading(false);
+      })
+      .catch(() => { if (!cancelled) { setAsOfPrices({}); setAsOfPricesUSD({}); setAsOfLoading(false); } });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asOfDate, assetIdsKey]);

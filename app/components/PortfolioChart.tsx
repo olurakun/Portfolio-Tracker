@@ -59,20 +59,19 @@ export default function PortfolioChart({
     if (!firstTxDate || assets.length === 0) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all(assets.map(async (a) => {
-      try {
-        const res = await fetch(`/api/history?symbol=${encodeURIComponent(a.symbol)}&type=${a.type}&start=${firstTxDate}&end=${today}`);
-        return { id: a.id, series: (await res.json()) as Series };
-      } catch {
-        return { id: a.id, series: { currency: 'TRY', prices: {} } as Series };
-      }
-    })).then(rows => {
-      if (cancelled) return;
-      const map: Record<string, Series> = {};
-      for (const r of rows) map[r.id] = r.series;
-      setHistories(map);
-      setLoading(false);
-    });
+    const spec = assets.map(a => `${a.symbol}:${a.type}`).join(',');
+    fetch(`/api/history?symbols=${encodeURIComponent(spec)}&start=${firstTxDate}&end=${today}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        const map: Record<string, Series> = {};
+        for (const a of assets) {
+          map[a.id] = (data.series?.[a.symbol.toUpperCase()] ?? { currency: 'TRY', prices: {} }) as Series;
+        }
+        setHistories(map);
+        setLoading(false);
+      })
+      .catch(() => { if (!cancelled) { setHistories({}); setLoading(false); } });
     return () => { cancelled = true; };
   }, [firstTxDate, assetKey, today, assets]);
 

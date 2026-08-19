@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hasRestatement, cacheCutoff, missingFrom, addDays, SETTLING_DAYS } from './priceCache';
+import { hasRestatement, cacheCutoff, addDays, SETTLING_DAYS } from './priceCache';
 
 describe('addDays', () => {
   it('gün ekler', () => {
@@ -68,30 +68,3 @@ describe('hasRestatement', () => {
   });
 });
 
-describe('missingFrom', () => {
-  const start = '2026-01-01', cutoff = '2026-08-13';
-
-  it('önbellek boşsa tamamı çekilmeli', () => {
-    expect(missingFrom({}, start, cutoff)).toBeNull();
-  });
-
-  it('önbellek aralığın başını kapsamıyorsa tamamı çekilmeli', () => {
-    // İlk kayıt başlangıçtan çok sonra: aradaki boşluk doldurulamaz.
-    expect(missingFrom({ '2026-06-01': 10 }, start, cutoff)).toBeNull();
-  });
-
-  it('başlangıcı kapsıyorsa son kayıttan sonrasını ister', () => {
-    expect(missingFrom({ '2026-01-02': 10, '2026-05-10': 12 }, start, cutoff))
-      .toBe('2026-05-11');
-  });
-
-  it('başlangıçtan birkaç gün sonra başlayan önbelleği kabul eder', () => {
-    // Piyasa 1 Ocak kapalıysa ilk kayıt birkaç gün sonra olur, bu normal.
-    expect(missingFrom({ '2026-01-05': 10 }, start, cutoff)).toBe('2026-01-06');
-  });
-
-  it('önbellek güncel olsa da bir sonraki günden devam eder', () => {
-    expect(missingFrom({ '2026-01-02': 10, '2026-08-13': 12 }, start, cutoff))
-      .toBe('2026-08-14');
-  });
-});

@@ -103,24 +103,6 @@ export async function purgeCache(symbol: string, assetType: string): Promise<voi
   }
 }
 
-/**
- * Önbellekte hangi tarihten sonrası eksik? Kaynaktan yalnızca o kısmı istemek
- * için kullanılır (özellikle TEFAS'ta periyodu küçültmek anlamlı fark yaratır).
- * Önbellek aralığın başını kapsamıyorsa null döner — tamamı çekilmeli.
- */
-export function missingFrom(cached: PriceSeries, start: string, cutoff: string): string | null {
-  const dates = Object.keys(cached).sort();
-  if (dates.length === 0) return null;
-
-  // Önbellek aralığın başlangıcını makul ölçüde kapsamıyorsa tamamını çek.
-  const firstCached = dates[0];
-  if (firstCached > addDays(start, 7)) return null;
-
-  const lastCached = dates[dates.length - 1];
-  if (lastCached >= cutoff) return addDays(lastCached, 1);
-  return addDays(lastCached, 1);
-}
-
 export function addDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);

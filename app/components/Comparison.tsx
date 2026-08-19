@@ -106,23 +106,22 @@ export default function Comparison({
     if (missing.length === 0) return;
     let cancelled = false;
     setLoading(true);
-    Promise.all(missing.map(async (item) => {
-      try {
-        const res = await fetch(`/api/history?symbol=${encodeURIComponent(item.symbol)}&type=${item.type}&start=${start}&end=${end}`);
-        const data = await res.json();
-        return { key: item.key, currency: data.currency ?? 'TRY', prices: (data.prices ?? {}) as PriceSeries };
-      } catch {
-        return { key: item.key, currency: 'TRY', prices: {} as PriceSeries };
-      }
-    })).then(rows => {
-      if (cancelled) return;
-      setSeries(prev => {
-        const next = { ...prev };
-        for (const r of rows) next[r.key] = { currency: r.currency, prices: r.prices };
-        return next;
-      });
-      setLoading(false);
-    });
+    const spec = missing.map(i => `${i.symbol}:${i.type}`).join(',');
+    fetch(`/api/history?symbols=${encodeURIComponent(spec)}&start=${start}&end=${end}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        setSeries(prev => {
+          const next = { ...prev };
+          for (const i of missing) {
+            const row = data.series?.[i.symbol.toUpperCase()];
+            next[i.key] = { currency: row?.currency ?? 'TRY', prices: (row?.prices ?? {}) as PriceSeries };
+          }
+          return next;
+        });
+        setLoading(false);
+      })
+      .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [neededItems, series, start, end]);
 

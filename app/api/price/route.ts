@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cached } from "../../../lib/ttlCache";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -145,27 +146,49 @@ async function fetchTefasHistoricalPrice(fundCode: string, date: string): Promis
   }
 }
 
-async function getUsdTryRate(): Promise<number | null> {
-  try {
-    const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD', { cache: 'no-store' });
-    const data = await res.json();
-    const rate = data?.rates?.TRY;
-    return typeof rate === "number" ? rate : null;
-  } catch {
+// Kur bütün varlıklar için aynı ama sayfa açılışında her varlık ayrı ayrı
+// soruyordu — 22 varlık = 22 dış çağrı (her biri 0,75–2 sn). Süreç içinde
+// paylaşılıyor ve eşzamanlı istekler tek çağrıya bindiriliyor.
+const RATE_TTL_MS = 10 * 60 * 1000;
+
+// Bir hisse sembolünün Yahoo'da hangi biçimde bulunduğunu çözer ve hatırlar.
+const TICKER_TTL_MS = 24 * 60 * 60 * 1000;
+const HISTORICAL_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function resolveStockTicker(symbol: string): Promise<string | null> {
+  return cached(`ticker:${symbol}`, TICKER_TTL_MS, async () => {
+    if (await fetchYahooQuote(symbol)) return symbol;
+    if (!symbol.includes(".") && await fetchYahooQuote(`${symbol}.IS`)) return `${symbol}.IS`;
     return null;
-  }
+  });
+}
+
+async function getUsdTryRate(): Promise<number | null> {
+  return cached('usdtry:current', RATE_TTL_MS, async () => {
+    try {
+      const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD', { cache: 'no-store' });
+      const data = await res.json();
+      const rate = data?.rates?.TRY;
+      return typeof rate === "number" ? rate : null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 // Belirli bir tarihteki USD/TRY kurunu Frankfurter (ECB referans kurları, ücretsiz/anahtarsız) üzerinden çeker.
 async function getHistoricalUsdTryRate(date: string): Promise<number | null> {
-  try {
-    const res = await fetch(`https://api.frankfurter.dev/v1/${date}?from=USD&to=TRY`, { cache: 'no-store' });
-    const data = await res.json();
-    const rate = data?.rates?.TRY;
-    return typeof rate === "number" ? rate : null;
-  } catch {
-    return null;
-  }
+  // Geçmiş kur değişmez, üstelik aynı tarih tüm varlıklar için soruluyor.
+  return cached(`usdtry:${date}`, HISTORICAL_TTL_MS, async () => {
+    try {
+      const res = await fetch(`https://api.frankfurter.dev/v1/${date}?from=USD&to=TRY`, { cache: 'no-store' });
+      const data = await res.json();
+      const rate = data?.rates?.TRY;
+      return typeof rate === "number" ? rate : null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 // Herhangi bir para birimindeki tutarı hem TRY hem USD karşılığına çevirir.
@@ -195,95 +218,114 @@ async function convertToTryAndUsd(amount: number, rawCurrency: string, usdTryRat
   }
 }
 
-async function getCurrentPrice(symbol: string, type: string | null) {
+type PriceResult = { price: number; priceUSD: number };
+
+async function getCurrentPrice(symbol: string, type: string | null): Promise<PriceResult> {
   const usdTryRate = await getUsdTryRate();
 
   // 1. DÖVİZ
   if (type === "currency") {
     const { tryAmount, usdAmount } = await convertToTryAndUsd(1, symbol, usdTryRate, null);
-    return NextResponse.json({ price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 });
+    return { price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 };
   }
 
   // 2. DEĞERLİ MADEN — Yahoo vadeli işlem fiyatları (USD/ons); sembol gram varyantıysa grama çevrilir
   if (type === "metal") {
     const spec = METAL_SPECS[symbol];
-    if (!spec) return NextResponse.json({ price: 0, priceUSD: 0 });
+    if (!spec) return { price: 0, priceUSD: 0 };
     const ozPriceUSD = await fetchYahooPrice(spec.ticker);
-    if (ozPriceUSD === null) return NextResponse.json({ price: 0, priceUSD: 0 });
+    if (ozPriceUSD === null) return { price: 0, priceUSD: 0 };
     const priceUSD = spec.perGram ? ozPriceUSD / TROY_OUNCE_IN_GRAMS : ozPriceUSD;
     const priceTRY = usdTryRate !== null ? priceUSD * usdTryRate : null;
-    return NextResponse.json({ price: priceTRY ?? 0, priceUSD });
+    return { price: priceTRY ?? 0, priceUSD };
   }
 
   // 3. FONLAR - TEFAS Doğrudan Erişim (şu an sadece TR fonları destekleniyor, her zaman TRY)
   if (type === "fund") {
     const tryPrice = await fetchTefasPrice(symbol);
     const usdPrice = tryPrice !== null && usdTryRate ? tryPrice / usdTryRate : null;
-    return NextResponse.json({ price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 });
+    return { price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 };
   }
 
   // 4. HİSSE SENETLERİ (yerli + yabancı)
   // Arama sonuçlarından gelen semboller borsa sonekini zaten içerir (THYAO.IS, AAPL, vb.)
   // Manuel eklenmiş ve soneksiz bir BIST sembolü olabileceği ihtimaline karşı
   // ilk deneme başarısız olursa ".IS" ekleyerek bir kez daha deneriz.
-  let quote = await fetchYahooQuote(symbol);
-  if (quote === null && !symbol.includes(".")) {
-    quote = await fetchYahooQuote(`${symbol}.IS`);
-  }
-  if (quote === null) return NextResponse.json({ price: 0, priceUSD: 0 });
+  // Hangi sonekin çalıştığı bir kez öğrenilip hatırlanır; aksi hâlde her BIST
+  // sembolü için önce soneksiz (başarısız) sonra ".IS" ile iki çağrı gidiyordu.
+  const ticker = await resolveStockTicker(symbol);
+  const quote = ticker ? await fetchYahooQuote(ticker) : null;
+  if (quote === null) return { price: 0, priceUSD: 0 };
   const { tryAmount, usdAmount } = await convertToTryAndUsd(quote.price, quote.currency, usdTryRate, null);
-  return NextResponse.json({ price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 });
+  return { price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 };
 }
 
-async function getHistoricalPrice(symbol: string, type: string | null, date: string) {
+async function getHistoricalPrice(symbol: string, type: string | null, date: string): Promise<PriceResult> {
   const usdTryRate = await getHistoricalUsdTryRate(date);
 
   // 1. DÖVİZ
   if (type === "currency") {
     const { tryAmount, usdAmount } = await convertToTryAndUsd(1, symbol, usdTryRate, date);
-    return NextResponse.json({ price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 });
+    return { price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 };
   }
 
   // 2. DEĞERLİ MADEN
   if (type === "metal") {
     const spec = METAL_SPECS[symbol];
-    if (!spec) return NextResponse.json({ price: 0, priceUSD: 0 });
+    if (!spec) return { price: 0, priceUSD: 0 };
     const quote = await fetchYahooHistoricalQuote(spec.ticker, date);
-    if (quote === null) return NextResponse.json({ price: 0, priceUSD: 0 });
+    if (quote === null) return { price: 0, priceUSD: 0 };
     const priceUSD = spec.perGram ? quote.price / TROY_OUNCE_IN_GRAMS : quote.price;
     const priceTRY = usdTryRate !== null ? priceUSD * usdTryRate : null;
-    return NextResponse.json({ price: priceTRY ?? 0, priceUSD });
+    return { price: priceTRY ?? 0, priceUSD };
   }
 
   // 3. FONLAR
   if (type === "fund") {
     const tryPrice = await fetchTefasHistoricalPrice(symbol, date);
     const usdPrice = tryPrice !== null && usdTryRate ? tryPrice / usdTryRate : null;
-    return NextResponse.json({ price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 });
+    return { price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 };
   }
 
   // 4. HİSSE SENETLERİ
-  let quote = await fetchYahooHistoricalQuote(symbol, date);
-  if (quote === null && !symbol.includes(".")) {
-    quote = await fetchYahooHistoricalQuote(`${symbol}.IS`, date);
-  }
-  if (quote === null) return NextResponse.json({ price: 0, priceUSD: 0 });
+  const ticker = await resolveStockTicker(symbol);
+  const quote = ticker ? await fetchYahooHistoricalQuote(ticker, date) : null;
+  if (quote === null) return { price: 0, priceUSD: 0 };
   const { tryAmount, usdAmount } = await convertToTryAndUsd(quote.price, quote.currency, usdTryRate, date);
-  return NextResponse.json({ price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 });
+  return { price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 };
+}
+
+const EMPTY: PriceResult = { price: 0, priceUSD: 0 };
+
+async function priceFor(symbol: string, type: string | null, date: string | null): Promise<PriceResult> {
+  try {
+    return date ? await getHistoricalPrice(symbol, type, date) : await getCurrentPrice(symbol, type);
+  } catch {
+    return EMPTY;
+  }
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const symbol = searchParams.get("symbol")?.toUpperCase().trim();
-  const type = searchParams.get("type");
   const date = searchParams.get("date"); // YYYY-MM-DD, verilmezse güncel fiyat
 
-  if (!symbol) return NextResponse.json({ price: 0, priceUSD: 0 });
+  // TOPLU İSTEK: "SEMBOL:tip,SEMBOL:tip" biçiminde.
+  // Sayfa açılışında her varlık için ayrı HTTP isteği atmak, tarayıcının aynı
+  // sunucuya en fazla ~6 eşzamanlı bağlantı açması yüzünden istekleri kuyruğa
+  // sokuyordu. Tek istekte toplanınca dış çağrılar sunucuda paralel yapılıyor.
+  const batch = searchParams.get("symbols");
+  if (batch) {
+    const items = batch.split(",").map(part => {
+      const [sym, t] = part.split(":");
+      return { symbol: sym?.toUpperCase().trim() ?? "", type: t ?? null };
+    }).filter(i => i.symbol);
 
-  try {
-    if (date) return await getHistoricalPrice(symbol, type, date);
-    return await getCurrentPrice(symbol, type);
-  } catch (error) {
-    return NextResponse.json({ price: 0, priceUSD: 0 });
+    const results = await Promise.all(items.map(async i => [i.symbol, await priceFor(i.symbol, i.type, date)] as const));
+    return NextResponse.json({ prices: Object.fromEntries(results) });
   }
+
+  const symbol = searchParams.get("symbol")?.toUpperCase().trim();
+  const type = searchParams.get("type");
+  if (!symbol) return NextResponse.json(EMPTY);
+  return NextResponse.json(await priceFor(symbol, type, date));
 }
