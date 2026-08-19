@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readCache, writeCache, purgeCache, hasRestatement, missingFrom, cacheCutoff } from "../../../lib/priceCache";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -89,34 +90,72 @@ export async function GET(request: Request) {
     return NextResponse.json({ currency: 'TRY', prices: {} });
   }
 
-  try {
+  // Ana para birimi kendi cinsinden hep 1 eder; ne dış servise ne önbelleğe gerek var.
+  if (type === "currency" && (CURRENCY_ALIASES[symbol] ?? symbol) === 'TRY') {
+    return NextResponse.json({ currency: 'TRY', prices: { [start]: 1, [end]: 1 }, flat: 1 });
+  }
+
+  // Kaynaktan veri çeker. `from` verilirse yalnızca o tarihten sonrası istenir —
+  // önbellek eskiyi zaten kapsıyorsa kaynağa küçük bir pencere sorulur.
+  const fetchFromSource = async (from: string) => {
     if (type === "currency") {
       const code = CURRENCY_ALIASES[symbol] ?? symbol;
-      // Ana para birimi kendi cinsinden hep 1 eder; dış servise sormaya gerek yok.
-      if (code === 'TRY') return NextResponse.json({ currency: 'TRY', prices: { [start]: 1, [end]: 1 }, flat: 1 });
-      return NextResponse.json(await frankfurterSeries(code, start, end) ?? { currency: 'TRY', prices: {} });
+      return await frankfurterSeries(code, from, end);
     }
-
     if (type === "metal") {
       const spec = METAL_SPECS[symbol];
-      if (!spec) return NextResponse.json({ currency: 'USD', prices: {} });
-      const series = await yahooSeries(spec.ticker, start, end);
-      if (!series) return NextResponse.json({ currency: 'USD', prices: {} });
+      if (!spec) return null;
+      const s = await yahooSeries(spec.ticker, from, end);
+      if (!s) return null;
       if (spec.perGram) {
-        for (const d of Object.keys(series.prices)) series.prices[d] /= TROY_OUNCE_IN_GRAMS;
+        for (const d of Object.keys(s.prices)) s.prices[d] /= TROY_OUNCE_IN_GRAMS;
       }
-      return NextResponse.json(series);
+      return s;
     }
-
     if (type === "fund") {
-      return NextResponse.json(await tefasSeries(symbol, start) ?? { currency: 'TRY', prices: {} });
+      return await tefasSeries(symbol, from);
+    }
+    let s = await yahooSeries(symbol, from, end);
+    if ((!s || Object.keys(s.prices).length === 0) && !symbol.includes(".")) {
+      s = await yahooSeries(`${symbol}.IS`, from, end);
+    }
+    return s;
+  };
+
+  try {
+    const assetType = type ?? 'stock';
+    const cached = await readCache(symbol, assetType, start, end);
+    const cutoff = cacheCutoff();
+
+    // Önbellek aralığın başını kapsıyorsa kaynaktan sadece eksik kısım istenir.
+    // Kapsamıyorsa (veya hiç yoksa) tamamı çekilir.
+    const from = missingFrom(cached.prices, start, cutoff) ?? start;
+    const fresh = await fetchFromSource(from);
+
+    if (!fresh) {
+      // Kaynak cevap vermedi ama elimizde önbellek varsa onu döndürmek,
+      // boş grafik göstermekten iyidir.
+      return NextResponse.json({
+        currency: cached.currency ?? 'TRY',
+        prices: cached.prices,
+        cached: true,
+      });
     }
 
-    let series = await yahooSeries(symbol, start, end);
-    if ((!series || Object.keys(series.prices).length === 0) && !symbol.includes(".")) {
-      series = await yahooSeries(`${symbol}.IS`, start, end);
+    // Bölünme / bedelsiz / temettü düzeltmesi kontrolü: kaynak geçmişi geriye
+    // dönük değiştirdiyse önbellek artık yanlış, atılır.
+    const restated = hasRestatement(cached.prices, fresh.prices);
+    if (restated) {
+      await purgeCache(symbol, assetType);
     }
-    return NextResponse.json(series ?? { currency: 'TRY', prices: {} });
+
+    const merged: Record<string, number> = restated ? {} : { ...cached.prices };
+    for (const [d, p] of Object.entries(fresh.prices)) merged[d] = p;
+
+    // Yazma isteği yanıtı bekletmesin.
+    void writeCache(symbol, assetType, fresh.currency, restated ? fresh.prices : merged);
+
+    return NextResponse.json({ currency: fresh.currency, prices: merged, restated });
   } catch {
     return NextResponse.json({ currency: 'TRY', prices: {} });
   }
