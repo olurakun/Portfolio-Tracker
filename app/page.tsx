@@ -6,6 +6,7 @@ import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
 import AuthGate from "./components/AuthGate";
 import Comparison from "./components/Comparison";
+import TransactionsTab from "./components/TransactionsTab";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
 
@@ -28,7 +29,7 @@ function Home({ session }: { session: Session }) {
   const [asOfPricesUSD, setAsOfPricesUSD] = useState<Record<string, number>>({});
   const [asOfLoading, setAsOfLoading] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
-  const [tab, setTab] = useState<'portfolio' | 'compare'>('portfolio');
+  const [tab, setTab] = useState<'portfolio' | 'compare' | 'transactions'>('portfolio');
   // Varsayılan sıralama: değere göre büyükten küçüğe.
   const [sortKey, setSortKey] = useState<SortKey>('value');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -42,12 +43,55 @@ function Home({ session }: { session: Session }) {
   const [txModalOpen, setTxModalOpen] = useState(false);
 
   const openTxModal = (assetId: string, kind: 'buy' | 'sell' | 'dividend') => {
+    setEditingTx(null);
+    setTxNewAsset(false);
     setSelectedAssetId(assetId);
     setTxType(kind);
     setQuantity("");
     setPrice("");
+    setTxCurrency('TRY');
+    setSymbol(""); setName(""); setSearchQuery(""); setSearchResults([]);
     setTxDate(new Date().toISOString().slice(0, 10));
     setTxModalOpen(true);
+  };
+
+  const openEditTx = (tx: any) => {
+    setEditingTx(tx);
+    setTxNewAsset(false);
+    setSelectedAssetId(String(tx.asset_id));
+    setTxType(tx.type);
+    setQuantity(tx.type === 'dividend' ? "" : String(tx.quantity));
+    setPrice(String(tx.price));
+    setTxCurrency((tx.currency || 'TRY').toUpperCase());
+    setTxDate(tx.date);
+    setTxModalOpen(true);
+  };
+
+  const deleteTransaction = async (tx: any) => {
+    const asset = assets.find(a => String(a.id) === String(tx.asset_id));
+    const label = `${asset?.symbol ?? ''} · ${tx.date} · ${tx.type === 'buy' ? 'Alım' : tx.type === 'sell' ? 'Satım' : 'Temettü'}`;
+    if (!confirm(`Bu işlem silinsin mi?\n\n${label}\n\nBu geri alınamaz.`)) return;
+    await supabase.from("transactions").delete().eq('id', tx.id);
+    fetchData();
+  };
+
+  const deleteManyTransactions = async (rows: any[], label: string) => {
+    if (rows.length === 0) return;
+    if (!confirm(`${label} silinsin mi?\n\n${rows.length} işlem kalıcı olarak silinecek. Bu geri alınamaz.`)) return;
+    const { error } = await supabase.from("transactions").delete().in('id', rows.map(r => r.id));
+    if (error) { alert("Silinemedi: " + error.message); return; }
+    fetchData();
+  };
+
+  const deleteAsset = async (asset: any) => {
+    const count = transactions.filter(t => String(t.asset_id) === String(asset.id)).length;
+    const warning = count > 0
+      ? `${asset.symbol} varlığına ait ${count} işlem de silinecek.`
+      : `${asset.symbol} varlığının hiç işlemi yok.`;
+    if (!confirm(`${asset.symbol} silinsin mi?\n\n${warning}\n\nBu geri alınamaz.`)) return;
+    await supabase.from("transactions").delete().eq('asset_id', asset.id);
+    await supabase.from("assets").delete().eq('id', asset.id);
+    fetchData();
   };
 
   // Form State'leri
@@ -59,6 +103,12 @@ function Home({ session }: { session: Session }) {
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [txDate, setTxDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [txCurrency, setTxCurrency] = useState('TRY');
+  // Modal içinden yeni varlık açma: portföyde olmayan bir şeye işlem girmek için
+  // önce ayrı bir formdan varlık oluşturmak gerekiyordu.
+  const [txNewAsset, setTxNewAsset] = useState(false);
+  // Düzenlenen işlem (null ise yeni kayıt).
+  const [editingTx, setEditingTx] = useState<any | null>(null);
 
   // İçe aktarma state'leri
   const [importRows, setImportRows] = useState<any[] | null>(null);
@@ -160,22 +210,50 @@ function Home({ session }: { session: Session }) {
 
   const addTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Modal içinden yeni varlık açılabiliyor; işlemden önce varlık oluşturulur.
+    let assetId = selectedAssetId;
+    if (txNewAsset) {
+      if (!symbol.trim()) { alert("Önce bir varlık seç veya sembol gir."); return; }
+      const { data, error } = await supabase
+        .from("assets")
+        .insert([{ symbol: symbol.trim().toUpperCase(), name: name.trim() || symbol.trim().toUpperCase(), type }])
+        .select();
+      if (error || !data?.[0]) { alert("Varlık oluşturulamadı: " + (error?.message ?? "bilinmeyen hata")); return; }
+      assetId = data[0].id;
+    }
+
+    if (!assetId) { alert("Bir varlık seç."); return; }
+
     if (txType === 'sell') {
-      const held = getHeldQty(selectedAssetId);
+      // Düzenlemede kendi eski adedi hariç tutulmalı, yoksa kendi kaydı sınırı düşürür.
+      const others = transactions.filter(tx => String(tx.asset_id) === String(assetId) && tx.id !== editingTx?.id);
+      const held = heldQuantity(others);
       if (Number(quantity) > held) {
         alert(`Elinizde bu varlıktan sadece ${held} adet var, ${quantity} adet satamazsınız.`);
         return;
       }
     }
+
     // Temettüde adet kavramı yok; tutarın tamamı fiyat alanında tutulur (adet = 1).
-    await supabase.from("transactions").insert([{
-      asset_id: selectedAssetId,
+    const row = {
+      asset_id: assetId,
       type: txType,
       quantity: txType === 'dividend' ? 1 : Number(quantity),
       price: Number(price),
       date: txDate,
-    }]);
+      currency: txCurrency,
+    };
+
+    const { error } = editingTx
+      ? await supabase.from("transactions").update(row).eq('id', editingTx.id)
+      : await supabase.from("transactions").insert([row]);
+
+    if (error) { alert("Kaydedilemedi: " + error.message); return; }
+
     setQuantity(""); setPrice(""); setTxDate(new Date().toISOString().slice(0, 10));
+    setSymbol(""); setName(""); setSearchQuery(""); setSearchResults([]);
+    setTxNewAsset(false); setEditingTx(null);
     setTxModalOpen(false);
     fetchData();
   };
@@ -479,7 +557,7 @@ function Home({ session }: { session: Session }) {
         </header>
 
         <nav className="flex gap-1 border-b border-gray-700 mb-6">
-          {([['portfolio', 'Portföy'], ['compare', 'Karşılaştırma']] as const).map(([key, label]) => (
+          {([['portfolio', 'Portföy'], ['transactions', 'İşlemler'], ['compare', 'Karşılaştırma']] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -494,6 +572,19 @@ function Home({ session }: { session: Session }) {
         </nav>
 
         {tab === 'compare' && <Comparison assets={assets} transactions={transactions} fxRates={fxRates} />}
+
+        {tab === 'transactions' && (
+          <TransactionsTab
+            assets={assets}
+            transactions={transactions}
+            fxRates={fxRates}
+            onEdit={openEditTx}
+            onDelete={deleteTransaction}
+            onDeleteMany={deleteManyTransactions}
+            onDeleteAsset={deleteAsset}
+            onAdd={() => openTxModal(selectedAssetId || String(assets[0]?.id ?? ''), 'buy')}
+          />
+        )}
 
         {tab === 'portfolio' && <>
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4 flex flex-wrap items-end gap-3">
@@ -832,18 +923,78 @@ function Home({ session }: { session: Session }) {
           >
             <div className="flex justify-between items-center">
               <h2 className="font-bold text-lg text-green-400">
-                {assets.find(a => String(a.id) === String(selectedAssetId))?.symbol ?? 'İşlem'} — İşlem Gir
+                {editingTx
+                  ? 'İşlemi Düzenle'
+                  : `${txNewAsset ? (symbol || 'Yeni varlık') : (assets.find(a => String(a.id) === String(selectedAssetId))?.symbol ?? 'İşlem')} — İşlem Gir`}
               </h2>
               <button type="button" onClick={() => setTxModalOpen(false)} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
             </div>
 
-            <select
-              value={selectedAssetId}
-              onChange={(e) => setSelectedAssetId(e.target.value)}
-              className="w-full p-2 rounded bg-gray-700 border border-gray-600"
-            >
-              {assets.map(a => <option key={a.id} value={a.id}>{a.symbol}</option>)}
-            </select>
+            {txNewAsset ? (
+              <div className="bg-gray-700/50 border border-gray-600 rounded p-3 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-400">Yeni varlık</span>
+                  <button type="button" onClick={() => { setTxNewAsset(false); setSymbol(""); setName(""); setSearchQuery(""); setSearchResults([]); }} className="text-xs text-gray-400 underline">Listeden seç</button>
+                </div>
+
+                {symbol ? (
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold truncate">{symbol}</div>
+                      <div className="text-xs text-gray-400 truncate">{name}</div>
+                    </div>
+                    <button type="button" onClick={() => { setSymbol(""); setName(""); setSearchQuery(""); }} className="text-xs text-gray-400 underline shrink-0">Değiştir</button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Ara: THYAO, Apple, USD, Altın..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full p-2 rounded bg-gray-700 border border-gray-600"
+                      autoFocus
+                    />
+                    {searching && <div className="text-xs text-gray-400 mt-1">Aranıyor...</div>}
+                    {searchResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full bg-gray-700 border border-gray-600 rounded max-h-52 overflow-y-auto shadow-xl">
+                        {searchResults.map((r, i) => (
+                          <button type="button" key={i} onClick={() => selectSearchResult(r)}
+                            className="w-full text-left px-3 py-2 hover:bg-gray-600 flex justify-between items-center gap-2">
+                            <span className="truncate"><span className="font-bold">{r.symbol}</span> <span className="text-gray-400 text-sm">{r.name}</span></span>
+                            <span className="text-xs uppercase text-gray-400 shrink-0">{typeLabel(r.type)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">Bulamazsan sembolü doğrudan yazıp tipini aşağıdan seçebilirsin.</p>
+                    <input type="text" placeholder="veya sembolü elle yaz (THYAO)" value={symbol}
+                      onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                      className="w-full p-2 mt-1 rounded bg-gray-700 border border-gray-600 text-sm" />
+                  </div>
+                )}
+
+                <select value={type} onChange={(e) => setType(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm">
+                  <option value="stock">Hisse</option><option value="fund">Fon</option>
+                  <option value="currency">Döviz</option><option value="metal">Değerli Maden</option>
+                </select>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  value={selectedAssetId}
+                  onChange={(e) => setSelectedAssetId(e.target.value)}
+                  className="flex-1 p-2 rounded bg-gray-700 border border-gray-600"
+                >
+                  {assets.map(a => <option key={a.id} value={a.id}>{a.symbol}</option>)}
+                </select>
+                {!editingTx && (
+                  <button type="button" onClick={() => { setTxNewAsset(true); setSymbol(""); setName(""); setSearchQuery(""); }}
+                    title="Portföyde olmayan bir varlık ekle"
+                    className="px-3 rounded bg-gray-700 hover:bg-gray-600 text-sm">+ Yeni</button>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2">
               <button type="button" onClick={() => setTxType('buy')} className={`flex-1 py-1.5 rounded text-sm ${txType==='buy' ? 'bg-green-600' : 'bg-gray-700'}`}>Alım</button>
@@ -852,7 +1003,7 @@ function Home({ session }: { session: Session }) {
             </div>
 
             {txType === 'sell' && (
-              <div className="text-xs text-gray-400">Elinizdeki adet: {getHeldQty(selectedAssetId).toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</div>
+              <div className="text-xs text-gray-400">Elinizdeki adet: {heldQuantity(transactions.filter(tx => String(tx.asset_id) === String(selectedAssetId) && tx.id !== editingTx?.id)).toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</div>
             )}
 
             {txType === 'dividend' ? (
@@ -863,11 +1014,22 @@ function Home({ session }: { session: Session }) {
                 <input type="number" step="any" placeholder="Fiyat" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
               </>
             )}
-            <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+            <div className="flex gap-2">
+              <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="flex-1 p-2 rounded bg-gray-700 border border-gray-600" required />
+              {/* Fiyatın para birimi: ABD hisseleri USD işlem görür, TL varsayılırsa maliyet tamamen yanlış çıkar. */}
+              <select value={txCurrency} onChange={(e) => setTxCurrency(e.target.value)}
+                title="Girdiğin fiyatın para birimi"
+                className="p-2 rounded bg-gray-700 border border-gray-600">
+                <option value="TRY">₺ TRY</option>
+                <option value="USD">$ USD</option>
+              </select>
+            </div>
 
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setTxModalOpen(false)} className="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600">İptal</button>
-              <button type="submit" className={`flex-1 py-2 rounded font-bold ${txType==='sell' ? 'bg-red-600 hover:bg-red-700' : txType==='dividend' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}>Kaydet</button>
+              <button type="submit" className={`flex-1 py-2 rounded font-bold ${txType==='sell' ? 'bg-red-600 hover:bg-red-700' : txType==='dividend' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}>
+                {editingTx ? 'Güncelle' : 'Kaydet'}
+              </button>
             </div>
           </form>
         </div>
