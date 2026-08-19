@@ -10,6 +10,7 @@ import Comparison from "./components/Comparison";
 import TransactionsTab from "./components/TransactionsTab";
 import ApiKeySettings from "./components/ApiKeySettings";
 import PortfolioTable from "./components/PortfolioTable";
+import ImportPreview from "./components/ImportPreview";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
@@ -525,7 +526,6 @@ function Home({ session }: { session: Session }) {
       .filter(tx => tx.symbol);
     return findDuplicateRows(existing, importRows);
   })();
-  const importDuplicateCount = importDuplicateFlags.filter(Boolean).length;
 
   const cancelImport = () => {
     setImportRows(null);
@@ -1001,199 +1001,23 @@ function Home({ session }: { session: Session }) {
       )}
 
       {importRows && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50">
-          <div className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col">
-            <div className="p-4 border-b border-gray-700">
-              <h2 className="font-bold text-lg text-orange-400">İçe Aktarma Önizlemesi</h2>
-              <p className="text-sm text-gray-400 mt-1">
-                {importRows.filter((r, i) => !r.error && !(importDupes === 'skip' && importDuplicateFlags[i])).length} satır aktarılacak
-                {importRows.some(r => r.error) && `, ${importRows.filter(r => r.error).length} hatalı (atlanacak)`}
-                {importDupes === 'skip' && importDuplicateCount > 0 && `, ${importDuplicateCount} yinelenen (atlanacak)`}
-              </p>
-
-              {importDuplicateCount > 0 && (
-                <div className="mt-3 bg-gray-900/60 border border-gray-700 rounded p-3">
-                  <div className="font-bold text-sm text-gray-200">
-                    {importDuplicateCount} satır portföyünde zaten var
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Sembol, işlem, tarih, adet, fiyat ve para birimi birebir aynı. Ekstre
-                    aralıkları örtüştüğünde bu normaldir; ikinci kez eklenirse maliyet
-                    ve kâr/zarar bozulur.
-                  </p>
-                  {/* Kesinlik değil sinyal: aynı gün aynı fiyattan iki ayrı alım
-                      gerçekten olabilir (kısmi gerçekleşen emir). Karar kullanıcının. */}
-                  <label className="flex items-center gap-2 mt-2 text-xs text-gray-300 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={importDupes === 'include'}
-                      onChange={(e) => setImportDupes(e.target.checked ? 'include' : 'skip')}
-                      className="accent-orange-600"
-                    />
-                    Bunlar ayrı işlemler, yine de aktar
-                  </label>
-                </div>
-              )}
-
-              {importMeta && (
-                <div className="mt-3 bg-gray-900/60 border border-gray-700 rounded p-3 space-y-2">
-                  <div className="text-sm font-bold text-orange-400">
-                    Bu satırlar dosyadan çevrildi — göndermeden önce kontrol et
-                  </div>
-                  {/* Bir dönüştürücünün en tehlikeli hatası satır atlamaktır: sayılar
-                      tutmuyorsa kullanıcı bunu onaydan ÖNCE görmeli. */}
-                  {importMeta.sourceTransactionCount !== null && (
-                    <div className={`text-xs ${
-                      importMeta.sourceTransactionCount === importRows.length
-                        ? 'text-gray-400' : 'text-amber-400'
-                    }`}>
-                      Dosyada {importMeta.sourceTransactionCount} işlem sayıldı, {importRows.length} satır çıkarıldı
-                      {importMeta.sourceTransactionCount !== importRows.length &&
-                        ' — sayılar tutmuyor, dosyayla karşılaştır.'}
-                    </div>
-                  )}
-                  {importMeta.skipped.length > 0 && (
-                    <details className="text-xs">
-                      <summary className="cursor-pointer text-gray-300">
-                        {importMeta.skipped.length} hareket atlandı
-                      </summary>
-                      <ul className="mt-2 space-y-1 text-gray-400 max-h-40 overflow-y-auto">
-                        {importMeta.skipped.map((reason, i) => (
-                          <li key={i}>• {reason}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                </div>
-              )}
-
-              {importNegatives.length > 0 && (
-                <div className="mt-3 bg-amber-950/50 border border-amber-700/60 rounded p-3">
-                  <div className="font-bold text-sm text-amber-400">
-                    Bu dosyada geçmiş alımlar eksik görünüyor
-                  </div>
-                  <p className="text-xs text-gray-300 mt-1">
-                    Aşağıdaki sembollerde satış, elindeki ve dosyadaki alımların toplamından fazla.
-                    Bu hâliyle aktarırsan maliyet ve kâr/zarar yanlış hesaplanır.
-                  </p>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {importNegatives.map(n => (
-                      <span key={n.symbol} className="text-xs bg-gray-800 border border-gray-700 rounded px-2 py-1">
-                        <span className="font-bold">{n.symbol}</span>
-                        <span className="text-amber-400 ml-1">
-                          {n.net.toLocaleString('tr-TR', { maximumFractionDigits: 6 })} adet açık
-                        </span>
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-2">
-                    Dosyayı tamamlayıp yeniden yüklemen önerilir. Yine de devam edebilirsin.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="overflow-y-auto p-4 space-y-4">
-              {Object.keys(newSymbolChoices).length > 0 && (
-                <div className="bg-gray-900/50 border border-gray-700 rounded p-3">
-                  <div className="font-bold text-sm mb-2">Portföyünde olmayan semboller</div>
-                  <div className="space-y-2">
-                    {Object.keys(newSymbolChoices).map(sym => (
-                      <div key={sym} className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold w-24">{sym}</span>
-                        <select
-                          value={newSymbolChoices[sym]}
-                          onChange={(e) => setNewSymbolChoices(prev => ({ ...prev, [sym]: e.target.value as 'create' | 'skip' }))}
-                          className="p-1 rounded bg-gray-700 border border-gray-600 text-sm"
-                        >
-                          <option value="create">Yeni varlık oluştur</option>
-                          <option value="skip">Atla</option>
-                        </select>
-                        {newSymbolChoices[sym] === 'create' && (
-                          <select
-                            value={newSymbolTypes[sym] || 'stock'}
-                            onChange={(e) => setNewSymbolTypes(prev => ({ ...prev, [sym]: e.target.value }))}
-                            className="p-1 rounded bg-gray-700 border border-gray-600 text-sm"
-                          >
-                            <option value="stock">Hisse</option>
-                            <option value="fund">Fon</option>
-                            <option value="currency">Döviz</option>
-                            <option value="metal">Değerli Maden</option>
-                          </select>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {Object.keys(importCurrencies).length > 0 && (
-                <div className="bg-gray-900/50 border border-gray-700 rounded p-3">
-                  <div className="font-bold text-sm mb-1">Para birimleri</div>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Fiyatların hangi para biriminde olduğunu kontrol et. Yanlış seçim maliyeti tamamen bozar
-                    (ör. ABD hisseleri genelde USD, BIST hisseleri TRY).
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.keys(importCurrencies).sort().map(sym => (
-                      <div key={sym} className="flex items-center gap-1 bg-gray-800 border border-gray-700 rounded px-2 py-1">
-                        <span className="font-bold text-sm">{sym}</span>
-                        <select
-                          value={importCurrencies[sym]}
-                          onChange={(e) => setImportCurrencies(prev => ({ ...prev, [sym]: e.target.value }))}
-                          className="p-1 rounded bg-gray-700 border border-gray-600 text-xs"
-                        >
-                          <option value="TRY">TRY ₺</option>
-                          <option value="USD">USD $</option>
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-900/50 text-gray-400">
-                  <tr><th className="p-2">Satır</th><th className="p-2">Sembol</th><th className="p-2">İşlem</th><th className="p-2">Adet</th><th className="p-2">Fiyat</th><th className="p-2">Tarih</th><th className="p-2"></th></tr>
-                </thead>
-                <tbody>
-                  {importRows.map((r, i) => {
-                    const skipped = r.error || (importDupes === 'skip' && importDuplicateFlags[i]);
-                    return (
-                    <tr key={i} className={`border-b border-gray-700 ${r.error ? 'text-red-400' : ''} ${skipped && !r.error ? 'text-gray-500' : ''}`}>
-                      <td className="p-2">{r.row}</td>
-                      <td className="p-2 font-bold">{r.symbol}</td>
-                      <td className="p-2">{r.type === 'buy' ? 'Alım' : r.type === 'sell' ? 'Satım' : 'Temettü'}</td>
-                      <td className="p-2">{r.quantity}</td>
-                      <td className="p-2">
-                        {r.price}
-                        <span className="text-gray-500 ml-1">
-                          {(importCurrencies[r.symbol] || r.currency) === 'USD' ? '$' : '₺'}
-                        </span>
-                      </td>
-                      <td className="p-2">{r.error ? r.error : r.date}</td>
-                      <td className="p-2">
-                        {importDuplicateFlags[i] && (
-                          <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 text-amber-300/90">
-                            Yinelenen
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="p-4 border-t border-gray-700 flex justify-end gap-3">
-              <button onClick={cancelImport} className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600">İptal</button>
-              <button onClick={confirmImport} disabled={importBusy} className="px-4 py-2 rounded bg-orange-600 hover:bg-orange-700 font-bold disabled:opacity-50">
-                {importBusy ? "Aktarılıyor..." : "İçe Aktar"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ImportPreview
+          rows={importRows}
+          duplicateFlags={importDuplicateFlags}
+          dupePolicy={importDupes}
+          onDupePolicyChange={setImportDupes}
+          meta={importMeta}
+          negatives={importNegatives}
+          newSymbolChoices={newSymbolChoices}
+          onNewSymbolChoice={(sym, choice) => setNewSymbolChoices(prev => ({ ...prev, [sym]: choice }))}
+          newSymbolTypes={newSymbolTypes}
+          onNewSymbolType={(sym, type) => setNewSymbolTypes(prev => ({ ...prev, [sym]: type }))}
+          currencies={importCurrencies}
+          onCurrencyChange={(sym, cur) => setImportCurrencies(prev => ({ ...prev, [sym]: cur }))}
+          busy={importBusy}
+          onCancel={cancelImport}
+          onConfirm={confirmImport}
+        />
       )}
     </div>
   );
