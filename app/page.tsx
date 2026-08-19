@@ -120,6 +120,16 @@ function Home({ session }: { session: Session }) {
   // Dosyadaki her sembol için para birimi — dosyada sütun varsa oradan gelir,
   // yoksa TRY varsayılır ve kullanıcı buradan düzeltebilir.
   const [importCurrencies, setImportCurrencies] = useState<Record<string, string>>({});
+  // Şablona uymayan dosyalar (PDF, aracı kurum ekstresi) yapay zekâ ile şablona
+  // çevriliyor. Dönüştürme ücretli bir dış çağrı olduğu için otomatik başlamaz;
+  // dosya beklemede tutulur ve kullanıcı isterse başlatır.
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [convertReason, setConvertReason] = useState("");
+  // Dönüştürülmüş dosyalarda modelin neyi atladığı ve kaç hareket saydığı;
+  // önizlemede gösterilir ki sessizce düşen satır fark edilebilsin.
+  const [importMeta, setImportMeta] = useState<
+    { skipped: string[]; sourceTransactionCount: number | null } | null
+  >(null);
 
   // Dönem (tarih aralığı) K/Z state'leri
   const [rangeStart, setRangeStart] = useState("");
@@ -348,10 +358,38 @@ function Home({ session }: { session: Session }) {
     setLoading(false);
   };
 
+  // Doğrudan okunan ve dönüştürülen dosyalar aynı önizleme modalına düşer.
+  const openImportPreview = (
+    rows: any[],
+    meta: { skipped: string[]; sourceTransactionCount: number | null } | null,
+  ) => {
+    setImportRows(rows);
+    setImportMeta(meta);
+
+    const known = new Set(assets.map(a => a.symbol.toUpperCase()));
+    const choices: Record<string, 'create' | 'skip'> = {};
+    const types: Record<string, string> = {};
+    const currencies: Record<string, string> = {};
+    for (const r of rows) {
+      if (r.error) continue;
+      if (!known.has(r.symbol) && !(r.symbol in choices)) {
+        choices[r.symbol] = 'create';
+        types[r.symbol] = 'stock';
+      }
+      if (!(r.symbol in currencies)) currencies[r.symbol] = r.currency || 'TRY';
+    }
+    setNewSymbolChoices(choices);
+    setNewSymbolTypes(types);
+    setImportCurrencies(currencies);
+  };
+
   const handleImportFile = async (file: File) => {
     setImportBusy(true);
     setImportError("");
     setImportRows(null);
+    setImportMeta(null);
+    setPendingFile(null);
+    setConvertReason("");
     try {
       const body = new FormData();
       body.append('file', file);
@@ -359,28 +397,42 @@ function Home({ session }: { session: Session }) {
       const data = await res.json();
       if (!res.ok) {
         setImportError(data.error || 'Dosya okunamadı.');
+      } else if (data.needsConversion) {
+        // Şablona uymuyor: dosyayı tutup dönüştürmeyi teklif ediyoruz.
+        setPendingFile(file);
+        setConvertReason(data.reason || '');
       } else {
-        setImportRows(data.rows);
-        const known = new Set(assets.map(a => a.symbol.toUpperCase()));
-        const choices: Record<string, 'create' | 'skip'> = {};
-        const types: Record<string, string> = {};
-        for (const r of data.rows as any[]) {
-          if (!r.error && !known.has(r.symbol) && !(r.symbol in choices)) {
-            choices[r.symbol] = 'create';
-            types[r.symbol] = 'stock';
-          }
-        }
-        setNewSymbolChoices(choices);
-        setNewSymbolTypes(types);
-
-        const currencies: Record<string, string> = {};
-        for (const r of data.rows as any[]) {
-          if (!r.error && !(r.symbol in currencies)) currencies[r.symbol] = r.currency || 'TRY';
-        }
-        setImportCurrencies(currencies);
+        openImportPreview(data.rows, null);
       }
     } catch {
       setImportError('Dosya yüklenemedi.');
+    }
+    setImportBusy(false);
+  };
+
+  const convertPendingFile = async () => {
+    if (!pendingFile) return;
+    setImportBusy(true);
+    setImportError("");
+    try {
+      const body = new FormData();
+      body.append('file', pendingFile);
+      const res = await fetch('/api/convert', { method: 'POST', body });
+      const data = await res.json();
+      if (!res.ok) {
+        setImportError(data.error || 'Dönüştürme başarısız oldu.');
+      } else if (!data.rows || data.rows.length === 0) {
+        setImportError('Dosyada içe aktarılabilir bir işlem bulunamadı.');
+      } else {
+        setPendingFile(null);
+        setConvertReason("");
+        openImportPreview(data.rows, {
+          skipped: data.skipped ?? [],
+          sourceTransactionCount: data.sourceTransactionCount ?? null,
+        });
+      }
+    } catch {
+      setImportError('Dönüştürme başarısız oldu.');
     }
     setImportBusy(false);
   };
@@ -416,6 +468,7 @@ function Home({ session }: { session: Session }) {
     if (toInsert.length > 0) await supabase.from("transactions").insert(toInsert);
 
     setImportRows(null);
+    setImportMeta(null);
     setNewSymbolChoices({});
     setNewSymbolTypes({});
     setImportCurrencies({});
@@ -440,6 +493,7 @@ function Home({ session }: { session: Session }) {
 
   const cancelImport = () => {
     setImportRows(null);
+    setImportMeta(null);
     setImportError("");
     setNewSymbolChoices({});
     setNewSymbolTypes({});
@@ -704,8 +758,8 @@ function Home({ session }: { session: Session }) {
              <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
                 <h2 className="font-bold text-lg text-orange-400">İşlem İçe Aktar</h2>
                 <p className="text-xs text-gray-400">
-                  CSV veya Excel (.xlsx). Başlık satırında şu sütunlar olmalı:{' '}
-                  <span className="text-gray-300">Sembol, İşlem, Adet, Fiyat, Tarih</span>
+                  Excel, CSV veya PDF. Şablon formatındaki dosyalar doğrudan okunur; aracı
+                  kurum ekstresi gibi başka formatlar şablona çevrilerek aktarılır.
                 </p>
                 <a
                   href="/api/template"
@@ -715,11 +769,45 @@ function Home({ session }: { session: Session }) {
                 </a>
                 <input
                   type="file"
-                  accept=".csv,.xlsx,.xlsm,.txt"
+                  accept=".csv,.xlsx,.xlsm,.txt,.pdf"
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
                   className="w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-orange-600 file:text-white file:font-bold"
                 />
-                {importBusy && <div className="text-xs text-gray-400">İşleniyor...</div>}
+
+                {pendingFile && (
+                  <div className="bg-gray-900/60 border border-gray-700 rounded p-3 space-y-2">
+                    <div className="text-xs text-gray-300">
+                      <span className="font-bold">{pendingFile.name}</span> şablon formatında değil.
+                      {convertReason && <span className="text-gray-500"> {convertReason}</span>}
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Dosyayı şablona çevirebilirim. Sonuç doğrudan kaydedilmez; her satırı
+                      onaylamadan önce göreceksin.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={convertPendingFile}
+                        disabled={importBusy}
+                        className="text-xs px-3 py-1.5 rounded bg-orange-600 hover:bg-orange-700 font-bold disabled:opacity-50"
+                      >
+                        {importBusy ? 'Çevriliyor...' : 'Şablona çevir'}
+                      </button>
+                      <button
+                        onClick={() => { setPendingFile(null); setConvertReason(''); }}
+                        disabled={importBusy}
+                        className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
+                      >
+                        Vazgeç
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {importBusy && (
+                  <div className="text-xs text-gray-400">
+                    {pendingFile ? 'Dosya okunuyor, uzun ekstrelerde bir dakikayı bulabilir...' : 'İşleniyor...'}
+                  </div>
+                )}
                 {importError && <div className="text-xs text-red-400">{importError}</div>}
              </div>
           </div>
@@ -1044,6 +1132,38 @@ function Home({ session }: { session: Session }) {
                 {importRows.filter(r => !r.error).length} geçerli satır
                 {importRows.some(r => r.error) && `, ${importRows.filter(r => r.error).length} hatalı satır (atlanacak)`}
               </p>
+
+              {importMeta && (
+                <div className="mt-3 bg-gray-900/60 border border-gray-700 rounded p-3 space-y-2">
+                  <div className="text-sm font-bold text-orange-400">
+                    Bu satırlar dosyadan çevrildi — göndermeden önce kontrol et
+                  </div>
+                  {/* Bir dönüştürücünün en tehlikeli hatası satır atlamaktır: sayılar
+                      tutmuyorsa kullanıcı bunu onaydan ÖNCE görmeli. */}
+                  {importMeta.sourceTransactionCount !== null && (
+                    <div className={`text-xs ${
+                      importMeta.sourceTransactionCount === importRows.length
+                        ? 'text-gray-400' : 'text-amber-400'
+                    }`}>
+                      Dosyada {importMeta.sourceTransactionCount} işlem sayıldı, {importRows.length} satır çıkarıldı
+                      {importMeta.sourceTransactionCount !== importRows.length &&
+                        ' — sayılar tutmuyor, dosyayla karşılaştır.'}
+                    </div>
+                  )}
+                  {importMeta.skipped.length > 0 && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-gray-300">
+                        {importMeta.skipped.length} hareket atlandı
+                      </summary>
+                      <ul className="mt-2 space-y-1 text-gray-400 max-h-40 overflow-y-auto">
+                        {importMeta.skipped.map((reason, i) => (
+                          <li key={i}>• {reason}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
+              )}
 
               {importNegatives.length > 0 && (
                 <div className="mt-3 bg-amber-950/50 border border-amber-700/60 rounded p-3">
