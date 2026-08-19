@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildRow, gridToRows, parseNumber, parseDate, parseType, parseCurrency } from './importParse';
+import {
+  buildRow, gridToRows, parseNumber, parseDate, parseType, parseCurrency,
+  findDuplicateRows, type ParsedRow,
+} from './importParse';
 
 describe('parseNumber', () => {
   // Türkçe Excel "1.234,56", İngilizce "1,234.56" yazar; ikisi de aynı sayıdır.
@@ -155,5 +158,78 @@ describe('gridToRows', () => {
   it('dosyadaki satır numarasını korur', () => {
     const { rows } = gridToRows(grid);
     expect(rows.map(r => r.row)).toEqual([2, 3]);
+  });
+});
+
+describe('findDuplicateRows', () => {
+  const existing = [
+    { symbol: 'THYAO', type: 'buy', date: '2026-06-15', quantity: 100, price: 305.25, currency: 'TRY' },
+    { symbol: 'AAPL', type: 'buy', date: '2026-06-20', quantity: 10, price: 296.42, currency: 'USD' },
+  ];
+  const row = (o: Partial<ParsedRow>): ParsedRow => ({
+    row: 2, symbol: 'THYAO', type: 'buy', quantity: 100, price: 305.25, date: '2026-06-15', currency: 'TRY', ...o,
+  });
+
+  it('portföyde zaten olan satırı işaretler', () => {
+    expect(findDuplicateRows(existing, [row({})])).toEqual([true]);
+  });
+
+  it('yeni satırı işaretlemez', () => {
+    expect(findDuplicateRows(existing, [row({ date: '2026-07-01' })])).toEqual([false]);
+  });
+
+  // Para birimi tek başına işlemi farklı kılar: aynı fiyat TRY ve USD'de
+  // tamamen başka bir maliyettir.
+  it('para birimi farklıysa yinelenmiş saymaz', () => {
+    expect(findDuplicateRows(existing, [row({ currency: 'USD' })])).toEqual([false]);
+  });
+
+  it('işlem tipi farklıysa yinelenmiş saymaz', () => {
+    expect(findDuplicateRows(existing, [row({ type: 'sell' })])).toEqual([false]);
+  });
+
+  // EN ÖNEMLİ DAVRANIŞ: aynı gün aynı fiyattan iki ayrı alım gerçekten olabilir
+  // (kısmi gerçekleşen emir). Veritabanında bir tane varsa yalnızca biri
+  // yinelenmiş sayılmalı, ikincisi yeni kayıt olarak kalmalı.
+  it('adet bazında eşleştirir, hepsini birden elemez', () => {
+    expect(findDuplicateRows(existing, [row({}), row({ row: 3 })])).toEqual([true, false]);
+  });
+
+  it('veritabanında iki tane varsa dosyadaki iki satırı da işaretler', () => {
+    const iki = [...existing, existing[0]];
+    expect(findDuplicateRows(iki, [row({}), row({ row: 3 })])).toEqual([true, true]);
+  });
+
+  // Hatalı satırlar zaten aktarılmıyor; yinelenmiş olarak da sayılmamalı,
+  // yoksa geçerli bir eşleşmeyi tüketirler.
+  it('hatalı satırları yok sayar', () => {
+    const rows = [row({ error: 'tarih okunamadı' }), row({ row: 3 })];
+    expect(findDuplicateRows(existing, rows)).toEqual([false, true]);
+  });
+
+  it('ondalık gösterim farkına takılmaz', () => {
+    expect(findDuplicateRows(existing, [row({ price: 305.2500000001 })])).toEqual([true]);
+  });
+
+  it('sembolü büyük/küçük harf duyarsız eşleştirir', () => {
+    const alt = [{ ...existing[0], symbol: 'thyao' }];
+    expect(findDuplicateRows(alt, [row({})])).toEqual([true]);
+  });
+
+  it('boş portföyde hiçbir satır yinelenmiş değildir', () => {
+    expect(findDuplicateRows([], [row({}), row({ row: 3 })])).toEqual([false, false]);
+  });
+
+  // Veritabanından gelen kayıtlar her zaman temiz gelmiyor: para birimi
+  // sütunu eklenmeden önceki satırlarda null, sayılar da sürücüye göre
+  // string olabiliyor. Bunlar eşleşmeyi bozmamalı.
+  it('para birimi null olan eski kayıtları TRY sayar', () => {
+    const eski = [{ symbol: 'THYAO', type: 'buy', date: '2026-06-15', quantity: 100, price: 305.25, currency: null }];
+    expect(findDuplicateRows(eski, [row({})])).toEqual([true]);
+  });
+
+  it('sayılar string gelse de eşleştirir', () => {
+    const stringli = [{ symbol: 'THYAO', type: 'buy', date: '2026-06-15', quantity: '100', price: '305.25', currency: 'TRY' }];
+    expect(findDuplicateRows(stringli, [row({})])).toEqual([true]);
   });
 });

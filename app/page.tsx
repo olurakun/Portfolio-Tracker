@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
+import { findDuplicateRows } from "../lib/importParse";
 import AuthGate from "./components/AuthGate";
 import Comparison from "./components/Comparison";
 import TransactionsTab from "./components/TransactionsTab";
@@ -135,6 +136,9 @@ function Home({ session }: { session: Session }) {
   >(null);
   // Sunucu anahtar bulamazsa anahtar alanını kendiliğinden açar.
   const [needsApiKey, setNeedsApiKey] = useState(false);
+  // Yinelenen satırlar varsayılan olarak atlanır ama karar kullanıcınındır:
+  // aynı gün aynı fiyattan iki ayrı alım gerçekten olabilir.
+  const [importDupes, setImportDupes] = useState<'skip' | 'include'>('skip');
 
   // Dönem (tarih aralığı) K/Z state'leri
   const [rangeStart, setRangeStart] = useState("");
@@ -470,7 +474,8 @@ function Home({ session }: { session: Session }) {
     }
 
     const toInsert = importRows
-      .filter(r => !r.error && symbolToAssetId.has(r.symbol))
+      .filter((r, i) => !r.error && symbolToAssetId.has(r.symbol)
+        && !(importDupes === 'skip' && importDuplicateFlags[i]))
       .map(r => ({
         asset_id: symbolToAssetId.get(r.symbol),
         type: r.type,
@@ -484,6 +489,7 @@ function Home({ session }: { session: Session }) {
 
     setImportRows(null);
     setImportMeta(null);
+    setImportDupes('skip');
     setNewSymbolChoices({});
     setNewSymbolTypes({});
     setImportCurrencies({});
@@ -506,9 +512,25 @@ function Home({ session }: { session: Session }) {
     return findNegativePositions(existing, importRows.filter(r => !r.error));
   })();
 
+  // Aracı kurumlar ekstreyi tarih aralığına göre veriyor ve aralıklar sık sık
+  // örtüşüyor. İkinci kez eklenen bir işlem maliyeti sessizce bozar.
+  const importDuplicateFlags = (() => {
+    if (!importRows) return [];
+    const symbolById = new Map(assets.map(a => [String(a.id), String(a.symbol).toUpperCase()]));
+    const existing = transactions
+      .map(tx => ({
+        symbol: symbolById.get(String(tx.asset_id)) ?? '',
+        type: tx.type, date: tx.date, quantity: tx.quantity, price: tx.price, currency: tx.currency,
+      }))
+      .filter(tx => tx.symbol);
+    return findDuplicateRows(existing, importRows);
+  })();
+  const importDuplicateCount = importDuplicateFlags.filter(Boolean).length;
+
   const cancelImport = () => {
     setImportRows(null);
     setImportMeta(null);
+    setImportDupes('skip');
     setImportError("");
     setNewSymbolChoices({});
     setNewSymbolTypes({});
@@ -984,9 +1006,34 @@ function Home({ session }: { session: Session }) {
             <div className="p-4 border-b border-gray-700">
               <h2 className="font-bold text-lg text-orange-400">İçe Aktarma Önizlemesi</h2>
               <p className="text-sm text-gray-400 mt-1">
-                {importRows.filter(r => !r.error).length} geçerli satır
-                {importRows.some(r => r.error) && `, ${importRows.filter(r => r.error).length} hatalı satır (atlanacak)`}
+                {importRows.filter((r, i) => !r.error && !(importDupes === 'skip' && importDuplicateFlags[i])).length} satır aktarılacak
+                {importRows.some(r => r.error) && `, ${importRows.filter(r => r.error).length} hatalı (atlanacak)`}
+                {importDupes === 'skip' && importDuplicateCount > 0 && `, ${importDuplicateCount} yinelenen (atlanacak)`}
               </p>
+
+              {importDuplicateCount > 0 && (
+                <div className="mt-3 bg-gray-900/60 border border-gray-700 rounded p-3">
+                  <div className="font-bold text-sm text-gray-200">
+                    {importDuplicateCount} satır portföyünde zaten var
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Sembol, işlem, tarih, adet, fiyat ve para birimi birebir aynı. Ekstre
+                    aralıkları örtüştüğünde bu normaldir; ikinci kez eklenirse maliyet
+                    ve kâr/zarar bozulur.
+                  </p>
+                  {/* Kesinlik değil sinyal: aynı gün aynı fiyattan iki ayrı alım
+                      gerçekten olabilir (kısmi gerçekleşen emir). Karar kullanıcının. */}
+                  <label className="flex items-center gap-2 mt-2 text-xs text-gray-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={importDupes === 'include'}
+                      onChange={(e) => setImportDupes(e.target.checked ? 'include' : 'skip')}
+                      className="accent-orange-600"
+                    />
+                    Bunlar ayrı işlemler, yine de aktar
+                  </label>
+                </div>
+              )}
 
               {importMeta && (
                 <div className="mt-3 bg-gray-900/60 border border-gray-700 rounded p-3 space-y-2">
@@ -1107,11 +1154,13 @@ function Home({ session }: { session: Session }) {
 
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-900/50 text-gray-400">
-                  <tr><th className="p-2">Satır</th><th className="p-2">Sembol</th><th className="p-2">İşlem</th><th className="p-2">Adet</th><th className="p-2">Fiyat</th><th className="p-2">Tarih</th></tr>
+                  <tr><th className="p-2">Satır</th><th className="p-2">Sembol</th><th className="p-2">İşlem</th><th className="p-2">Adet</th><th className="p-2">Fiyat</th><th className="p-2">Tarih</th><th className="p-2"></th></tr>
                 </thead>
                 <tbody>
-                  {importRows.map((r, i) => (
-                    <tr key={i} className={`border-b border-gray-700 ${r.error ? 'text-red-400' : ''}`}>
+                  {importRows.map((r, i) => {
+                    const skipped = r.error || (importDupes === 'skip' && importDuplicateFlags[i]);
+                    return (
+                    <tr key={i} className={`border-b border-gray-700 ${r.error ? 'text-red-400' : ''} ${skipped && !r.error ? 'text-gray-500' : ''}`}>
                       <td className="p-2">{r.row}</td>
                       <td className="p-2 font-bold">{r.symbol}</td>
                       <td className="p-2">{r.type === 'buy' ? 'Alım' : r.type === 'sell' ? 'Satım' : 'Temettü'}</td>
@@ -1123,8 +1172,16 @@ function Home({ session }: { session: Session }) {
                         </span>
                       </td>
                       <td className="p-2">{r.error ? r.error : r.date}</td>
+                      <td className="p-2">
+                        {importDuplicateFlags[i] && (
+                          <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 text-amber-300/90">
+                            Yinelenen
+                          </span>
+                        )}
+                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

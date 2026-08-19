@@ -179,3 +179,61 @@ export function gridToRows(grid: unknown[][]): { rows: ParsedRow[]; missingColum
   }
   return { rows, missingColumns: [] };
 }
+
+export type ExistingTx = {
+  symbol: string;
+  type: string;
+  date: string;
+  quantity: number | string;
+  price: number | string;
+  currency?: string | null;
+};
+
+/**
+ * Bir işlemin kimliği. Aracı kurum ekstrelerinde işlem numarası yok, elimizde
+ * yalnızca bu beş alan var. Fiyat ve adet ondalıklı olduğu için yuvarlanır;
+ * aksi halde 305.25 ile 305.2500000001 farklı görünürdü.
+ */
+function txKey(tx: { symbol: string; type: string; date: string; quantity: number | string; price: number | string; currency?: string | null }): string {
+  const qty = Number(tx.quantity);
+  const price = Number(tx.price);
+  return [
+    tx.symbol.trim().toUpperCase(),
+    tx.type,
+    tx.date,
+    Number.isFinite(qty) ? qty.toFixed(6) : 'x',
+    Number.isFinite(price) ? price.toFixed(6) : 'x',
+    (tx.currency || 'TRY').toUpperCase(),
+  ].join('|');
+}
+
+/**
+ * Dosyadaki hangi satırların portföyde ZATEN bulunduğunu işaretler.
+ *
+ * Aracı kurumlar ekstreyi tarih aralığına göre veriyor ve aralıklar sık sık
+ * örtüşüyor; aynı işlemin ikinci kez eklenmesi maliyeti sessizce bozar.
+ *
+ * Bu bir KESİNLİK DEĞİL sinyaldir: aynı gün aynı fiyattan iki ayrı alım
+ * gerçekten olabilir (kısmi gerçekleşen emirler). Bu yüzden eşleşme sayı
+ * bazında yapılır — veritabanında bir tane varken dosyada iki tane geçiyorsa
+ * yalnızca BİRİ yinelenmiş sayılır, diğeri yeni kayıt olarak kalır. Karar
+ * kullanıcınındır; burada yalnızca işaretlenir.
+ *
+ * Dönen dizi `rows` ile aynı sıradadır.
+ */
+export function findDuplicateRows(existing: ExistingTx[], rows: ParsedRow[]): boolean[] {
+  const remaining = new Map<string, number>();
+  for (const tx of existing) {
+    const key = txKey(tx);
+    remaining.set(key, (remaining.get(key) ?? 0) + 1);
+  }
+
+  return rows.map(row => {
+    if (row.error) return false;
+    const key = txKey(row);
+    const left = remaining.get(key) ?? 0;
+    if (left <= 0) return false;
+    remaining.set(key, left - 1);
+    return true;
+  });
+}
