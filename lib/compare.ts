@@ -61,6 +61,53 @@ export function totalReturnPct(points: IndexedPoint[]): number {
   return points[points.length - 1].value - 100;
 }
 
+export type DailyValue = {
+  date: string;
+  /** Gün sonu toplam değer (TL). */
+  value: number;
+  /** O gün gruba giren net para (alım − satım, TL). */
+  flow: number;
+};
+
+/**
+ * Bir varlık grubunun zaman ağırlıklı getirisini 100'e endeksler.
+ *
+ * Grubun ham değerini endekslemek yanlış olur: dönem içinde gruba yeni alım
+ * yapıldığında değer artar ama bu getiri değildir. Zaman ağırlıklı getiride
+ * her günün getirisi nakit akışından arındırılır — (bugünün değeri − bugün
+ * giren para) / dünün değeri — ve günlük getiriler zincirlenir. Böylece
+ * "ne kadar para koydum" değil "koyduğum para nasıl performans gösterdi"
+ * ölçülür ve gruplar birbiriyle âdil kıyaslanır.
+ *
+ * Grup boşken (değer 0) geçen günler atlanır; endeks ilk pozisyon açıldığı
+ * günden başlar.
+ */
+export function timeWeightedIndex(days: DailyValue[]): IndexedPoint[] {
+  const out: IndexedPoint[] = [];
+  let cumulative = 100;
+  let prevValue: number | null = null;
+
+  for (const day of days) {
+    if (prevValue === null || prevValue <= 0) {
+      // Grup henüz boştu; bugün pozisyon varsa endeks buradan başlar.
+      if (day.value > 0) {
+        prevValue = day.value;
+        out.push({ date: day.date, value: cumulative });
+      }
+      continue;
+    }
+
+    const growth = (day.value - day.flow) / prevValue;
+    if (Number.isFinite(growth) && growth > 0) {
+      cumulative *= growth;
+      out.push({ date: day.date, value: cumulative });
+    }
+    prevValue = day.value > 0 ? day.value : prevValue;
+  }
+
+  return out;
+}
+
 /**
  * Aralıktaki hafta içi günlerin listesi. Piyasalar hafta sonu kapalı olduğu için
  * cumartesi/pazar atlanır — aksi hâlde grafikte düz basamaklar oluşur.

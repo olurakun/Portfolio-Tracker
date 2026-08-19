@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { priceAsOf, indexSeries, totalReturnPct, businessDays } from './compare';
+import { priceAsOf, indexSeries, totalReturnPct, businessDays, timeWeightedIndex } from './compare';
 
 describe('priceAsOf', () => {
   const s = { '2026-01-05': 100, '2026-01-07': 110 };
@@ -76,6 +76,61 @@ describe('totalReturnPct', () => {
 
   it('boş seride sıfır döner', () => {
     expect(totalReturnPct([])).toBe(0);
+  });
+});
+
+describe('timeWeightedIndex', () => {
+  const d = (date: string, value: number, flow = 0) => ({ date, value, flow });
+
+  it('nakit akışı yokken değer değişimini endeksler', () => {
+    const r = timeWeightedIndex([d('01', 100), d('02', 110), d('03', 121)]);
+    expect(totalReturnPct(r)).toBeCloseTo(21, 8);
+  });
+
+  // Asıl mesele bu: gruba para eklemek getiri sayılmamalı.
+  it('yeni alımı getiri saymaz', () => {
+    // 100 ile başla, ertesi gün 500 daha koy → değer 600 ama fiyat hiç değişmedi.
+    const r = timeWeightedIndex([d('01', 100), d('02', 600, 500)]);
+    expect(totalReturnPct(r)).toBeCloseTo(0, 8);
+  });
+
+  it('para ekleme ile gerçek getiriyi ayırır', () => {
+    // Gün 2: 500 eklendi ve ayrıca %10 değer kazandı → 100*1.1 + 500 = 610
+    const r = timeWeightedIndex([d('01', 100), d('02', 610, 500)]);
+    expect(totalReturnPct(r)).toBeCloseTo(10, 8);
+  });
+
+  it('satışı da getiriden arındırır', () => {
+    // Gün 2: değer 100 → 110 olacaktı ama 60 çekildi → 50 kaldı.
+    const r = timeWeightedIndex([d('01', 100), d('02', 50, -60)]);
+    expect(totalReturnPct(r)).toBeCloseTo(10, 8);
+  });
+
+  it('günlük getirileri zincirler', () => {
+    const r = timeWeightedIndex([d('01', 100), d('02', 110), d('03', 220, 99)]);
+    // 1.10 × ((220-99)/110 = 1.10) = 1.21
+    expect(totalReturnPct(r)).toBeCloseTo(21, 8);
+  });
+
+  it('grup boşken geçen günleri atlar, ilk pozisyondan başlar', () => {
+    const r = timeWeightedIndex([d('01', 0), d('02', 0), d('03', 100, 100), d('04', 120)]);
+    expect(r[0].date).toBe('03');
+    expect(r[0].value).toBe(100);
+    expect(totalReturnPct(r)).toBeCloseTo(20, 8);
+  });
+
+  it('grup tamamen satıldıktan sonra getiriyi geri almaz', () => {
+    // Gün 3'te her şey satıldı; endeks son gerçek getiride kalmalı.
+    const r = timeWeightedIndex([d('01', 100), d('02', 120), d('03', 0, -120)]);
+    expect(totalReturnPct(r)).toBeCloseTo(20, 8);
+  });
+
+  it('boş girdide boş döner', () => {
+    expect(timeWeightedIndex([])).toEqual([]);
+  });
+
+  it('değer hiç oluşmazsa boş döner', () => {
+    expect(timeWeightedIndex([d('01', 0), d('02', 0)])).toEqual([]);
   });
 });
 

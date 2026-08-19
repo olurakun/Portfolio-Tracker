@@ -488,7 +488,7 @@ function Home({ session }: { session: Session }) {
           ))}
         </nav>
 
-        {tab === 'compare' && <Comparison assets={assets} />}
+        {tab === 'compare' && <Comparison assets={assets} transactions={transactions} fxRates={fxRates} />}
 
         {tab === 'portfolio' && <>
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4 flex flex-wrap items-end gap-3">
