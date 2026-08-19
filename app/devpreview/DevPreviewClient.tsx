@@ -6,6 +6,7 @@ import ImportPreview, { type DupePolicy } from "../components/ImportPreview";
 import ApiKeySettings from "../components/ApiKeySettings";
 import AssetPicker, { type AssetChoice } from "../components/AssetPicker";
 import BrokerBar from "../components/BrokerBar";
+import PortfolioSwitch from "../components/PortfolioSwitch";
 import type { SortKey, SortDir } from "../../lib/sortPositions";
 import * as fx from "./fixtures";
 
@@ -44,6 +45,7 @@ export default function DevPreviewClient() {
   const [choice, setChoice] = useState<AssetChoice>({ symbol: '', name: '', type: 'stock' });
   const [broker, setBroker] = useState<string | null>(null);
   const [importBroker, setImportBroker] = useState<string | null>(null);
+  const [portfolio, setPortfolio] = useState('');
 
   const isEmptyCase = tableCase === 'empty' || tableCase === 'loading';
   // Yinelenen bayrakları senaryoya göre: 1. ve 3. satır zaten portföyde varmış gibi.
@@ -91,6 +93,12 @@ export default function DevPreviewClient() {
             onToggleClosed={() => setShowClosed(s => !s)}
             onRefresh={() => {}}
           />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Portföy anahtarı</h2>
+          <PortfolioSwitch scenarios={['Sanal', 'NVDA senaryosu']} active={portfolio} onChange={setPortfolio} />
+          <div className="text-xs text-gray-500">Aktif: <code className="text-gray-300">{portfolio || '(gerçek)'}</code></div>
         </section>
 
         <section className="space-y-3">

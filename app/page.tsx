@@ -6,6 +6,7 @@ import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
 import { findDuplicateRows } from "../lib/importParse";
 import { brokersOf, filterByBroker, normalizeBroker } from "../lib/brokers";
+import { REAL, DEFAULT_SCENARIO, filterByPortfolio, normalizePortfolio, scenariosOf } from "../lib/portfolios";
 import AuthGate from "./components/AuthGate";
 import Comparison from "./components/Comparison";
 import TransactionsTab from "./components/TransactionsTab";
@@ -14,6 +15,7 @@ import PortfolioTable from "./components/PortfolioTable";
 import ImportPreview from "./components/ImportPreview";
 import AssetPicker, { type AssetChoice } from "./components/AssetPicker";
 import BrokerBar from "./components/BrokerBar";
+import PortfolioSwitch from "./components/PortfolioSwitch";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
@@ -60,7 +62,7 @@ function Home({ session }: { session: Session }) {
     setTxCurrency('TRY');
     // Aracıyı elle her seferinde yazdırmamak için o varlığın son işleminden,
     // yoksa seçili filtreden tahmin ediyoruz.
-    const lastForAsset = [...transactions].reverse()
+    const lastForAsset = [...scopedTransactions].reverse()
       .find(tx => String(tx.asset_id) === String(assetId) && normalizeBroker(tx.broker));
     setTxBroker(normalizeBroker(lastForAsset?.broker) || (brokerFilter ?? ""));
     setSymbol(""); setName("");
@@ -83,6 +85,30 @@ function Home({ session }: { session: Session }) {
 
   // Mevcut kayıtların aracısını toplu doldurmak için: bir varlığın TÜM
   // işlemlerine tek seferde aracı atar. 92+ işlemi elle düzenlemek gerçekçi değil.
+  // "Şunu 2023'te almış olsaydım" senaryosunun işe yarar olması için fiyatı
+  // elle bulmak gerekmemeli; seçilen tarihin fiyatı doğrudan çekiliyor.
+  const [priceLookup, setPriceLookup] = useState<'idle' | 'loading' | 'error'>('idle');
+
+  const fillHistoricalPrice = async () => {
+    const asset = assets.find(a => String(a.id) === String(selectedAssetId));
+    const lookupSymbol = txNewAsset ? symbol.trim() : (asset?.symbol ?? '');
+    const lookupType = txNewAsset ? type : (asset?.type ?? 'stock');
+    if (!lookupSymbol || !txDate) { setPriceLookup('error'); return; }
+
+    setPriceLookup('loading');
+    try {
+      const res = await fetch(
+        `/api/price?symbol=${encodeURIComponent(lookupSymbol)}&type=${lookupType}&date=${txDate}`);
+      const data = await res.json();
+      const value = txCurrency === 'USD' ? data.priceUSD : data.price;
+      if (!value) { setPriceLookup('error'); return; }
+      setPrice(String(Number(value.toFixed(6))));
+      setPriceLookup('idle');
+    } catch {
+      setPriceLookup('error');
+    }
+  };
+
   const setAssetBroker = async (asset: { id: string | number }, broker: string) => {
     const value = normalizeBroker(broker) || null;
     const { error } = await supabase
@@ -134,6 +160,17 @@ function Home({ session }: { session: Session }) {
   const [txBroker, setTxBroker] = useState("");
   // Portföy görünümünde seçili aracı; null "hepsi" demek.
   const [brokerFilter, setBrokerFilter] = useState<string | null>(null);
+  // Aktif portföy: '' gerçek, aksi hâlde senaryo adı. Sanal işlemler gerçek
+  // portföye SIZMAMALI — sızarsa kullanıcının asıl K/Z'si sessizce yanlış olur.
+  const [activePortfolio, setActivePortfolio] = useState<string>(REAL);
+  const isVirtual = activePortfolio !== REAL;
+
+  // Aktif portföyün işlemleri. Aşağıdaki HER hesap bunun üzerinden yapılır;
+  // ham `transactions` yalnızca portföy listesini çıkarmak için kullanılır.
+  const scopedTransactions = filterByPortfolio(transactions, activePortfolio);
+  // Varsayılan senaryo, hiç sanal işlem yokken de seçilebilsin diye listede durur.
+  const scenarioList = Array.from(new Set([...scenariosOf(transactions), DEFAULT_SCENARIO]));
+
   // Modal içinden yeni varlık açma: portföyde olmayan bir şeye işlem girmek için
   // önce ayrı bir formdan varlık oluşturmak gerekiyordu.
   const [txNewAsset, setTxNewAsset] = useState(false);
@@ -230,7 +267,7 @@ function Home({ session }: { session: Session }) {
   };
 
   const getHeldQty = (assetId: string) =>
-    heldQuantity(transactions.filter(tx => tx.asset_id === assetId));
+    heldQuantity(scopedTransactions.filter(tx => tx.asset_id === assetId));
 
   const addTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,7 +288,7 @@ function Home({ session }: { session: Session }) {
 
     if (txType === 'sell') {
       // Düzenlemede kendi eski adedi hariç tutulmalı, yoksa kendi kaydı sınırı düşürür.
-      const others = transactions.filter(tx => String(tx.asset_id) === String(assetId) && tx.id !== editingTx?.id);
+      const others = scopedTransactions.filter(tx => String(tx.asset_id) === String(assetId) && tx.id !== editingTx?.id);
       const held = heldQuantity(others);
       if (Number(quantity) > held) {
         alert(`Elinizde bu varlıktan sadece ${held} adet var, ${quantity} adet satamazsınız.`);
@@ -268,6 +305,8 @@ function Home({ session }: { session: Session }) {
       date: txDate,
       currency: txCurrency,
       broker: normalizeBroker(txBroker) || null,
+      // Düzenlemede işlemin kendi portföyü korunur; yeni kayıt aktif portföye gider.
+      portfolio: (editingTx ? normalizePortfolio(editingTx.portfolio) : activePortfolio) || null,
     };
 
     const { error } = editingTx
@@ -296,7 +335,9 @@ function Home({ session }: { session: Session }) {
     // TEK seferde toplu atılır. Önceden döngü içinde varlık başına iki ayrı
     // istek sırayla bekleniyordu.
     const rows = assets.map(asset => {
-      const assetTx = transactions.filter(tx => tx.asset_id === asset.id);
+      // Aktif portföyün işlemleri — ham liste kullanılırsa sanal kipte gerçek
+      // portföyün rakamı çıkar (ve tersi).
+      const assetTx = scopedTransactions.filter(tx => tx.asset_id === asset.id);
       let qtyBeforeStart = 0, qtyAtEnd = 0, buysInRange = 0, sellsInRange = 0;
 
       for (const tx of assetTx) {
@@ -382,7 +423,7 @@ function Home({ session }: { session: Session }) {
     setImportMeta(meta);
     // Dosyada kurum yoksa ve portföyde tek kurum varsa onu öneriyoruz.
     const fileHasBroker = rows.some(r => normalizeBroker(r.broker));
-    const knownBrokerNames = brokersOf(transactions).filter(Boolean);
+    const knownBrokerNames = brokersOf(scopedTransactions).filter(Boolean);
     setImportBroker(fileHasBroker ? null : (knownBrokerNames.length === 1 ? knownBrokerNames[0] : null));
 
     const known = new Set(assets.map(a => a.symbol.toUpperCase()));
@@ -495,6 +536,7 @@ function Home({ session }: { session: Session }) {
         currency: importCurrencies[r.symbol] || r.currency || 'TRY',
         // Seçim yapılmadıysa dosyadaki değer kullanılır.
         broker: (importBroker === null ? normalizeBroker(r.broker) : importBroker) || null,
+        portfolio: activePortfolio || null,
       }));
 
     if (toInsert.length > 0) await supabase.from("transactions").insert(toInsert);
@@ -519,7 +561,7 @@ function Home({ session }: { session: Session }) {
     const existing: Record<string, number> = {};
     for (const asset of assets) {
       existing[asset.symbol.toUpperCase()] = heldQuantity(
-        transactions.filter(tx => tx.asset_id === asset.id)
+        scopedTransactions.filter(tx => tx.asset_id === asset.id)
       );
     }
     return findNegativePositions(existing, importRows.filter(r => !r.error));
@@ -530,7 +572,7 @@ function Home({ session }: { session: Session }) {
   const importDuplicateFlags = (() => {
     if (!importRows) return [];
     const symbolById = new Map(assets.map(a => [String(a.id), String(a.symbol).toUpperCase()]));
-    const existing = transactions
+    const existing = scopedTransactions
       .map(tx => ({
         symbol: symbolById.get(String(tx.asset_id)) ?? '',
         type: tx.type, date: tx.date, quantity: tx.quantity, price: tx.price, currency: tx.currency,
@@ -598,8 +640,8 @@ function Home({ session }: { session: Session }) {
 
   // Aracı kırılımı: seçili aracı varsa portföy YALNIZCA o kurumun işlemlerinden
   // hesaplanır, böylece adet, maliyet ve K/Z o kurumun ekstresiyle karşılaştırılabilir.
-  const brokerList = brokersOf(transactions);
-  const visibleTransactions = filterByBroker(transactions, brokerFilter);
+  const brokerList = brokersOf(scopedTransactions);
+  const visibleTransactions = filterByBroker(scopedTransactions, brokerFilter);
 
   const portfolio = assets.map(asset => {
     const assetTx = visibleTransactions.filter(tx =>
@@ -632,7 +674,7 @@ function Home({ session }: { session: Session }) {
 
   // Her kurumun toplam değeri. Kurum sayısı az olduğu için doğrudan hesaplanıyor.
   const brokerTotals = brokerList.map(broker => {
-    const txs = filterByBroker(transactions, broker);
+    const txs = filterByBroker(scopedTransactions, broker);
     const value = assets.reduce((acc, asset) => {
       const assetTx = txs.filter(tx =>
         tx.asset_id === asset.id && (!isHistorical || tx.date <= asOfDate));
@@ -656,9 +698,13 @@ function Home({ session }: { session: Session }) {
               >Çıkış yap</button>
             </div>
           </div>
-          <div className={`p-4 rounded-xl border shadow-xl text-right ${isHistorical ? 'bg-amber-950/40 border-amber-700/60' : 'bg-gray-800 border-gray-700'}`}>
+          <div className={`p-4 rounded-xl border shadow-xl text-right ${
+            isVirtual ? 'bg-cyan-950/30 border-dashed border-cyan-700/60'
+            : isHistorical ? 'bg-amber-950/40 border-amber-700/60'
+            : 'bg-gray-800 border-gray-700'}`}>
             <div className="text-gray-400 text-sm uppercase">
-              {isHistorical ? `${asOfDate} Tarihindeki Değer` : 'Toplam Değer'}
+              {isVirtual ? `${activePortfolio} · Senaryo Değeri`
+                : isHistorical ? `${asOfDate} Tarihindeki Değer` : 'Toplam Değer'}
             </div>
             <div className="text-3xl font-bold">
               {asOfLoading ? '…' : totalValue.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
@@ -676,6 +722,15 @@ function Home({ session }: { session: Session }) {
           </div>
         </header>
 
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <PortfolioSwitch scenarios={scenarioList} active={activePortfolio} onChange={setActivePortfolio} />
+          {isVirtual && (
+            <span className="text-xs text-cyan-300/90">
+              Sanal senaryo — buradaki işlemler gerçek portföyüne dahil edilmez.
+            </span>
+          )}
+        </div>
+
         <nav className="flex gap-1 border-b border-gray-700 mb-6">
           {([['portfolio', 'Portföy'], ['transactions', 'İşlemler'], ['compare', 'Karşılaştırma']] as const).map(([key, label]) => (
             <button
@@ -691,12 +746,12 @@ function Home({ session }: { session: Session }) {
           ))}
         </nav>
 
-        {tab === 'compare' && <Comparison assets={assets} transactions={transactions} fxRates={fxRates} />}
+        {tab === 'compare' && <Comparison assets={assets} transactions={scopedTransactions} fxRates={fxRates} />}
 
         {tab === 'transactions' && (
           <TransactionsTab
             assets={assets}
-            transactions={transactions}
+            transactions={scopedTransactions}
             fxRates={fxRates}
             onEdit={openEditTx}
             onDelete={deleteTransaction}
@@ -741,7 +796,7 @@ function Home({ session }: { session: Session }) {
         />
 
         {!isHistorical && (
-          <PortfolioChart assets={assets} transactions={transactions} fxRates={fxRates} />
+          <PortfolioChart assets={assets} transactions={scopedTransactions} fxRates={fxRates} />
         )}
 
         <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-8 flex flex-wrap items-end gap-3">
@@ -909,7 +964,7 @@ function Home({ session }: { session: Session }) {
             </div>
 
             {txType === 'sell' && (
-              <div className="text-xs text-gray-400">Elinizdeki adet: {heldQuantity(transactions.filter(tx => String(tx.asset_id) === String(selectedAssetId) && tx.id !== editingTx?.id)).toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</div>
+              <div className="text-xs text-gray-400">Elinizdeki adet: {heldQuantity(scopedTransactions.filter(tx => String(tx.asset_id) === String(selectedAssetId) && tx.id !== editingTx?.id)).toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</div>
             )}
 
             {txType === 'dividend' ? (
@@ -917,7 +972,21 @@ function Home({ session }: { session: Session }) {
             ) : (
               <>
                 <input type="number" step="any" placeholder="Adet" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required autoFocus />
-                <input type="number" step="any" placeholder="Fiyat" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required />
+                <div className="flex gap-2">
+                  <input type="number" step="any" placeholder="Fiyat" value={price} onChange={(e) => { setPrice(e.target.value); setPriceLookup('idle'); }} className="flex-1 p-2 rounded bg-gray-700 border border-gray-600" required />
+                  <button
+                    type="button"
+                    onClick={fillHistoricalPrice}
+                    disabled={priceLookup === 'loading'}
+                    title="Seçili tarihteki fiyatı getir"
+                    className="px-3 rounded bg-gray-700 hover:bg-gray-600 text-xs whitespace-nowrap disabled:opacity-50"
+                  >
+                    {priceLookup === 'loading' ? '...' : 'O günkü fiyat'}
+                  </button>
+                </div>
+                {priceLookup === 'error' && (
+                  <div className="text-xs text-red-400">O tarihin fiyatı bulunamadı, elle gir.</div>
+                )}
               </>
             )}
             <div className="flex gap-2">
