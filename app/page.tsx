@@ -16,6 +16,7 @@ import ImportPreview from "./components/ImportPreview";
 import AssetPicker, { type AssetChoice } from "./components/AssetPicker";
 import BrokerBar from "./components/BrokerBar";
 import PortfolioSwitch from "./components/PortfolioSwitch";
+import DataSources from "./components/DataSources";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
@@ -914,6 +915,8 @@ function Home({ session }: { session: Session }) {
           </div>
         </div>
         </>}
+
+        <DataSources />
       </div>
 
       {txModalOpen && (

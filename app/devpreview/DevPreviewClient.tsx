@@ -7,6 +7,7 @@ import ApiKeySettings from "../components/ApiKeySettings";
 import AssetPicker, { type AssetChoice } from "../components/AssetPicker";
 import BrokerBar from "../components/BrokerBar";
 import PortfolioSwitch from "../components/PortfolioSwitch";
+import DataSources from "../components/DataSources";
 import type { SortKey, SortDir } from "../../lib/sortPositions";
 import * as fx from "./fixtures";
 
@@ -93,6 +94,11 @@ export default function DevPreviewClient() {
             onToggleClosed={() => setShowClosed(s => !s)}
             onRefresh={() => {}}
           />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Veri kaynağı künyesi</h2>
+          <DataSources />
         </section>
 
         <section className="space-y-3">
