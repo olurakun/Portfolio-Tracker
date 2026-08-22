@@ -8,6 +8,9 @@ import AssetPicker, { type AssetChoice } from "../components/AssetPicker";
 import BrokerBar from "../components/BrokerBar";
 import PortfolioSwitch from "../components/PortfolioSwitch";
 import DataSources from "../components/DataSources";
+import ShareModal, { type ShareRecord } from "../components/ShareModal";
+import ShareView from "../components/ShareView";
+import { buildShareSnapshot, DEFAULT_SHARE_COLUMNS, type ShareConfig } from "../../lib/shares";
 import type { SortKey, SortDir } from "../../lib/sortPositions";
 import * as fx from "./fixtures";
 
@@ -44,6 +47,14 @@ export default function DevPreviewClient() {
   const [choices, setChoices] = useState<Record<string, 'create' | 'skip'>>({ TLY: 'create' });
   const [types, setTypes] = useState<Record<string, string>>({ TLY: 'fund' });
   const [choice, setChoice] = useState<AssetChoice>({ symbol: '', name: '', type: 'stock' });
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [demoShares, setDemoShares] = useState<ShareRecord[]>([
+    {
+      id: 'demo-1', title: 'Hisse portföyüm',
+      config: { assetTypes: ['stock'], columns: DEFAULT_SHARE_COLUMNS },
+      created_at: '2026-08-20T10:00:00Z', refreshed_at: '2026-08-22T09:00:00Z',
+    },
+  ]);
   const [broker, setBroker] = useState<string | null>(null);
   const [importBroker, setImportBroker] = useState<string | null>(null);
   const [portfolio, setPortfolio] = useState('');
@@ -94,6 +105,43 @@ export default function DevPreviewClient() {
             onToggleClosed={() => setShowClosed(s => !s)}
             onRefresh={() => {}}
           />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Paylaşım modalı</h2>
+          <button onClick={() => setShareModalOpen(true)} className="px-3 py-1.5 rounded text-xs font-semibold bg-orange-600 hover:bg-orange-700">
+            Paylaşım modalını aç
+          </button>
+          <ShareModal
+            open={shareModalOpen}
+            onClose={() => setShareModalOpen(false)}
+            assetCounts={{ stock: 3, fund: 1, currency: 1, metal: 1 }}
+            busy={false}
+            error=""
+            shares={demoShares}
+            sharesLoading={false}
+            onCreate={(title, config) => setDemoShares(prev => [
+              { id: `demo-${prev.length + 2}`, title: title || null, config, created_at: new Date().toISOString(), refreshed_at: new Date().toISOString() },
+              ...prev,
+            ])}
+            onRefresh={(id) => setDemoShares(prev => prev.map(s => s.id === id ? { ...s, refreshed_at: new Date().toISOString() } : s))}
+            onDelete={(id) => setDemoShares(prev => prev.filter(s => s.id !== id))}
+          />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Paylaşım görünümü (genel sayfa)</h2>
+          <p className="text-xs text-gray-500">/paylasim/[id] rotasının gerçekte çizdiği bileşen — K/Z kapalı, sadece hisseler.</p>
+          <div className="border border-gray-700 rounded-xl overflow-hidden">
+            <ShareView
+              title="Hisse portföyüm"
+              updatedAt="2026-08-22T09:00:00Z"
+              snapshot={buildShareSnapshot(
+                fx.positions,
+                { assetTypes: ['stock'], columns: { ...DEFAULT_SHARE_COLUMNS, unrealizedPL: false, realizedPL: false } } as ShareConfig,
+              )}
+            />
+          </div>
         </section>
 
         <section className="space-y-3">

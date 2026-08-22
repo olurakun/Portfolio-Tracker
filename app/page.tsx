@@ -17,6 +17,8 @@ import AssetPicker, { type AssetChoice } from "./components/AssetPicker";
 import BrokerBar from "./components/BrokerBar";
 import PortfolioSwitch from "./components/PortfolioSwitch";
 import DataSources from "./components/DataSources";
+import ShareModal, { type ShareRecord } from "./components/ShareModal";
+import { buildShareSnapshot, type AssetType, type ShareConfig } from "../lib/shares";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
 import type { Session } from "@supabase/supabase-js";
@@ -200,6 +202,15 @@ function Home({ session }: { session: Session }) {
   >(null);
   // Sunucu anahtar bulamazsa anahtar alanını kendiliğinden açar.
   const [needsApiKey, setNeedsApiKey] = useState(false);
+
+  // Paylaşım: anlık görüntü, yalnızca GERÇEK ve GÜNCEL portföyden üretilir.
+  // Sanal senaryolar ve geçmiş tarih görünümü kasıtlı olarak dışında tutulur
+  // (bkz. ShareModal — buton isVirtual || isHistorical iken kapalı).
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shares, setShares] = useState<ShareRecord[]>([]);
+  const [sharesLoading, setSharesLoading] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState("");
   // Yinelenen satırlar varsayılan olarak atlanır ama karar kullanıcınındır:
   // aynı gün aynı fiyattan iki ayrı alım gerçekten olabilir.
   const [importDupes, setImportDupes] = useState<'skip' | 'include'>('skip');
@@ -673,6 +684,60 @@ function Home({ session }: { session: Session }) {
   const totalPL = totalUnrealizedPL + totalRealizedPL;
   const totalPLUSD = portfolio.reduce((acc, i) => acc + i.unrealizedPLUSD + i.realizedPLUSD, 0);
 
+  const assetTypeCounts = (['stock', 'fund', 'currency', 'metal'] as AssetType[]).reduce((acc, t) => {
+    acc[t] = openPositions.filter(p => p.type === t).length;
+    return acc;
+  }, {} as Record<AssetType, number>);
+
+  const loadShares = async () => {
+    setSharesLoading(true);
+    const { data, error } = await supabase
+      .from('portfolio_shares')
+      .select('id, title, config, created_at, refreshed_at')
+      .order('created_at', { ascending: false });
+    if (!error && data) setShares(data as ShareRecord[]);
+    setSharesLoading(false);
+  };
+
+  const openShareModal = () => {
+    setShareError("");
+    setShareModalOpen(true);
+    loadShares();
+  };
+
+  const createShare = async (title: string, config: ShareConfig) => {
+    setShareBusy(true);
+    setShareError("");
+    const snapshot = buildShareSnapshot(openPositions, config);
+    const { error } = await supabase.from('portfolio_shares').insert([{
+      title: title || null,
+      config,
+      snapshot,
+    }]);
+    if (error) setShareError("Paylaşım oluşturulamadı: " + error.message);
+    else await loadShares();
+    setShareBusy(false);
+  };
+
+  const refreshShare = async (id: string) => {
+    const share = shares.find(s => s.id === id);
+    if (!share) return;
+    const snapshot = buildShareSnapshot(openPositions, share.config);
+    const { error } = await supabase
+      .from('portfolio_shares')
+      .update({ snapshot, refreshed_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) setShareError("Yenilenemedi: " + error.message);
+    else await loadShares();
+  };
+
+  const deleteShare = async (id: string) => {
+    if (!confirm('Bu paylaşım linki kalıcı olarak silinsin mi? Linki daha önce paylaştığın kişiler artık erişemez.')) return;
+    const { error } = await supabase.from('portfolio_shares').delete().eq('id', id);
+    if (error) setShareError("Kaldırılamadı: " + error.message);
+    else await loadShares();
+  };
+
   // Her kurumun toplam değeri. Kurum sayısı az olduğu için doğrudan hesaplanıyor.
   const brokerTotals = brokerList.map(broker => {
     const txs = filterByBroker(scopedTransactions, broker);
@@ -911,6 +976,12 @@ function Home({ session }: { session: Session }) {
               showClosed={showClosed}
               onToggleClosed={() => setShowClosed(s => !s)}
               onRefresh={fetchPrices}
+              onShare={openShareModal}
+              shareDisabledReason={
+                isVirtual ? 'Sanal senaryolar paylaşılamaz — önce gerçek portföye dön'
+                : isHistorical ? 'Yalnızca güncel portföy paylaşılabilir — önce bugüne dön'
+                : undefined
+              }
             />
           </div>
         </div>
@@ -918,6 +989,19 @@ function Home({ session }: { session: Session }) {
 
         <DataSources />
       </div>
+
+      <ShareModal
+        open={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        assetCounts={assetTypeCounts}
+        busy={shareBusy}
+        error={shareError}
+        shares={shares}
+        sharesLoading={sharesLoading}
+        onCreate={createShare}
+        onRefresh={refreshShare}
+        onDelete={deleteShare}
+      />
 
       {txModalOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50" onClick={() => setTxModalOpen(false)}>

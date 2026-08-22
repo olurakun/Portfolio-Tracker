@@ -94,6 +94,7 @@ export default function PortfolioTable({
   openPositions, closedPositions, totals, isHistorical, asOfDate, loading,
   sortKey, sortDir, onSort, editingPriceIds, onToggleEditPrice, onPriceChange,
   onOpenTx, showClosed, onToggleClosed, onRefresh,
+  onShare, shareDisabledReason,
 }: {
   openPositions: PortfolioRow[];
   closedPositions: PortfolioRow[];
@@ -111,6 +112,11 @@ export default function PortfolioTable({
   showClosed: boolean;
   onToggleClosed: () => void;
   onRefresh: () => void;
+  /** Verilmezse paylaşım düğmesi hiç render edilmez. */
+  onShare?: () => void;
+  /** Doluysa düğme kapalıdır ve sebep title/aria-label olarak gösterilir
+      (ör. sanal senaryo veya geçmiş tarih görünümündeyken paylaşım anlamsız). */
+  shareDisabledReason?: string;
 }) {
   // İlk yüklemede sıfırlarla dolu bir tablo göstermek yanlış bilgi vermek olur;
   // fiyatlar gelene kadar iskelet gösteriliyor.
@@ -121,6 +127,22 @@ export default function PortfolioTable({
     <div className="bg-gray-800 rounded-xl border border-gray-700">
       <div className="p-4 border-b border-gray-700 flex justify-between items-center">
         <h2 className="font-bold text-lg text-purple-400">Portföy</h2>
+        <div className="flex items-center gap-1">
+        {onShare && (
+          <button
+            onClick={onShare}
+            disabled={!!shareDisabledReason}
+            title={shareDisabledReason || "Portföyü paylaş"}
+            aria-label={shareDisabledReason || "Portföyü paylaş"}
+            className="w-9 h-9 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+              <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+          </button>
+        )}
         <button
           onClick={onRefresh}
           disabled={loading}
@@ -135,6 +157,7 @@ export default function PortfolioTable({
             <polyline points="21 3 21 9 15 9" />
           </svg>
         </button>
+        </div>
       </div>
 
       {/* Boş durum tablonun DIŞINDA: tablo min-w-[900px] olduğu için dar
