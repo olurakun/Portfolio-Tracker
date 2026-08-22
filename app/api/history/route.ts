@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fxSeriesUrl } from "../../../lib/fx";
 import { readCache, writeCache, purgeCache, hasRestatement } from "../../../lib/priceCache";
 import { tefasSeries as tefasFetch, periodForRange } from "../../../lib/tefas";
 
@@ -49,7 +50,7 @@ async function yahooSeries(ticker: string, start: string, end: string) {
 
 
 async function frankfurterSeries(from: string, start: string, end: string) {
-  const res = await fetch(`https://api.frankfurter.dev/v1/${start}..${end}?from=${from}&to=TRY`, { cache: 'no-store' });
+  const res = await fetch(fxSeriesUrl(start, end, from, 'TRY'), { cache: 'no-store' });
   const data = await res.json();
   const raw = data?.rates ?? {};
   const prices: Record<string, number> = {};

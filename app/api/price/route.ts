@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fxRateUrl, readRate } from "../../../lib/fx";
 import { cached } from "../../../lib/ttlCache";
 import { tefasLatestPrice, tefasPriceOn } from "../../../lib/tefas";
 
@@ -108,36 +109,28 @@ async function resolveStockTicker(symbol: string): Promise<string | null> {
   });
 }
 
-async function getUsdTryRate(): Promise<number | null> {
-  return cached('usdtry:current', RATE_TTL_MS, async () => {
-    try {
-      const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD', { cache: 'no-store' });
-      const data = await res.json();
-      const rate = data?.rates?.TRY;
-      return typeof rate === "number" ? rate : null;
-    } catch {
-      return null;
-    }
-  });
+// Güncel ve geçmiş USD/TRY kuru AYNI kaynaktan (Frankfurter) geliyor;
+// gerekçesi ve sınırları lib/fx.ts'te.
+async function fetchUsdTryRate(date: string | null): Promise<number | null> {
+  try {
+    const res = await fetch(fxRateUrl(date, 'USD', 'TRY'), { cache: 'no-store' });
+    return readRate(await res.json(), 'TRY');
+  } catch {
+    return null;
+  }
 }
 
-// Belirli bir tarihteki USD/TRY kurunu Frankfurter (ECB referans kurları, ücretsiz/anahtarsız) üzerinden çeker.
+async function getUsdTryRate(): Promise<number | null> {
+  return cached('usdtry:current', RATE_TTL_MS, () => fetchUsdTryRate(null));
+}
+
 async function getHistoricalUsdTryRate(date: string): Promise<number | null> {
   // Geçmiş kur değişmez, üstelik aynı tarih tüm varlıklar için soruluyor.
-  return cached(`usdtry:${date}`, HISTORICAL_TTL_MS, async () => {
-    try {
-      const res = await fetch(`https://api.frankfurter.dev/v1/${date}?from=USD&to=TRY`, { cache: 'no-store' });
-      const data = await res.json();
-      const rate = data?.rates?.TRY;
-      return typeof rate === "number" ? rate : null;
-    } catch {
-      return null;
-    }
-  });
+  return cached(`usdtry:${date}`, HISTORICAL_TTL_MS, () => fetchUsdTryRate(date));
 }
 
 // Herhangi bir para birimindeki tutarı hem TRY hem USD karşılığına çevirir.
-// `date` verilirse (tarihsel sorgu) Frankfurter'ın geçmişe dönük kurları kullanılır.
+// `date` verilirse o günün kuru, verilmezse en son yayınlanan kur kullanılır.
 async function convertToTryAndUsd(amount: number, rawCurrency: string, usdTryRate: number | null, date: string | null): Promise<{ tryAmount: number | null; usdAmount: number | null }> {
   const currency = normalizeCurrency(rawCurrency);
   if (currency === BASE_CURRENCY) {
@@ -147,16 +140,13 @@ async function convertToTryAndUsd(amount: number, rawCurrency: string, usdTryRat
     return { tryAmount: usdTryRate ? amount * usdTryRate : null, usdAmount: amount };
   }
   try {
-    const url = date
-      ? `https://api.frankfurter.dev/v1/${date}?from=${currency}&to=TRY,USD`
-      : `https://api.exchangerate-api.com/v4/latest/${currency}`;
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(fxRateUrl(date, currency, ['TRY', 'USD']), { cache: 'no-store' });
     const data = await res.json();
-    const tryRate = data?.rates?.TRY;
-    const usdRate = data?.rates?.USD;
+    const tryRate = readRate(data, 'TRY');
+    const usdRate = readRate(data, 'USD');
     return {
-      tryAmount: typeof tryRate === "number" ? amount * tryRate : null,
-      usdAmount: typeof usdRate === "number" ? amount * usdRate : null,
+      tryAmount: tryRate === null ? null : amount * tryRate,
+      usdAmount: usdRate === null ? null : amount * usdRate,
     };
   } catch {
     return { tryAmount: null, usdAmount: null };

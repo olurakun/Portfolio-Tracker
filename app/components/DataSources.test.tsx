@@ -6,20 +6,18 @@ import DataSources from './DataSources';
 afterEach(cleanup);
 
 describe('DataSources', () => {
-  // ExchangeRate-API'nin ücretsiz katmanı atfı ZORUNLU tutuyor ve bağlantı
-  // metnini sabitliyor. Bu test bir stil tercihi değil, lisans şartı:
-  // kırılırsa o servisin kullanım koşulları ihlal ediliyor demektir.
-  it('ExchangeRate-API atfını şartın istediği metinle verir', () => {
-    render(<DataSources />);
-    const link = screen.getByRole('link', { name: 'Rates By Exchange Rate API' });
-    expect(link).toHaveAttribute('href', 'https://www.exchangerate-api.com');
-  });
-
-  it('rakamların geldiği diğer kaynakları da künyeye yazar', () => {
+  it('rakamların geldiği kaynakları künyeye yazar', () => {
     render(<DataSources />);
     for (const name of ['Frankfurter', 'TEFAS', 'Yahoo Finance']) {
       expect(screen.getByRole('link', { name })).toBeInTheDocument();
     }
+  });
+
+  // Kullanmadığımız bir servise atıf vermek yanıltıcı olur; kur artık
+  // tamamen Frankfurter'dan geliyor (bkz. lib/fx.ts).
+  it('kullanılmayan kaynakları listelemez', () => {
+    const { container } = render(<DataSources />);
+    expect(container.innerHTML).not.toContain('exchangerate-api');
   });
 
   // Dış bağlantılar yeni sekmede ve referrer sızdırmadan açılmalı.

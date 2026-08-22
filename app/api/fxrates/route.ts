@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { fxSeriesUrl } from "../../../lib/fx";
 
 // İşlem maliyetlerini hem TL hem USD bazında hesaplayabilmek için her işlem
 // tarihindeki USD/TRY kuruna ihtiyaç var. Tarih başına ayrı istek atmak yerine
@@ -13,7 +14,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const res = await fetch(`https://api.frankfurter.dev/v1/${start}..${end}?from=USD&to=TRY`, {
+    const res = await fetch(fxSeriesUrl(start, end, 'USD', 'TRY'), {
       cache: 'no-store',
     });
     const data = await res.json();
