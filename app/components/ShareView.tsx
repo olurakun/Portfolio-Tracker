@@ -38,6 +38,13 @@ export default function ShareView({ title, snapshot, updatedAt }: {
 }) {
   const cols = visibleColumns(snapshot.rows);
   const colCount = 2 + Object.values(cols).filter(Boolean).length;
+  // Adet ve fiyatın "toplamı" anlamsız (farklı varlıkların adedini/fiyatını
+  // toplamak bir şey ifade etmez); toplam satırı yalnızca gerçekten
+  // toplanabilir bir sütun (değer, pay, K/Z) açıkken gösterilir. Önceki hata:
+  // satır yalnızca "Değer" açıksa gösteriliyordu — kullanıcı Değer'i kapatıp
+  // sadece Pay'ı açık bırakınca (uygulamanın ilk örneği olan "sadece
+  // yüzdeleri göster" senaryosu) toplam satırı hiç çıkmıyordu.
+  const showTotals = snapshot.rows.length > 0 && (cols.value || cols.share || cols.unrealizedPL || cols.realizedPL);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6 sm:p-8 font-sans">
@@ -116,15 +123,17 @@ export default function ShareView({ title, snapshot, updatedAt }: {
                     Bu paylaşımda gösterilecek varlık yok.
                   </td></tr>
                 )}
-                {snapshot.rows.length > 0 && cols.value && (
+                {showTotals && (
                   <tr className="bg-gray-900/40 border-t-2 border-gray-600">
                     <td className="px-3 py-3 font-bold" colSpan={1 + (cols.quantity ? 1 : 0) + (cols.price ? 1 : 0)}>
                       TOPLAM
                     </td>
-                    <td className="px-3 py-3 text-right">
-                      <div className="font-bold tabular-nums">{tl(snapshot.totals.value!)}</div>
-                      <div className="text-[11px] text-gray-500 tabular-nums">{usd(snapshot.totals.valueUSD!)}</div>
-                    </td>
+                    {cols.value && (
+                      <td className="px-3 py-3 text-right">
+                        <div className="font-bold tabular-nums">{tl(snapshot.totals.value!)}</div>
+                        <div className="text-[11px] text-gray-500 tabular-nums">{usd(snapshot.totals.valueUSD!)}</div>
+                      </td>
+                    )}
                     {cols.share && <td className="px-3 py-3 text-right text-gray-400 tabular-nums">%100</td>}
                     {cols.unrealizedPL && (
                       <td className={`px-3 py-3 text-right font-bold tabular-nums ${plColor(snapshot.totals.unrealizedPL!)}`}>

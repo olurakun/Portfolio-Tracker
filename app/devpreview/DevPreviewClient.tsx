@@ -131,14 +131,14 @@ export default function DevPreviewClient() {
 
         <section className="space-y-3">
           <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">Paylaşım görünümü (genel sayfa)</h2>
-          <p className="text-xs text-gray-500">/paylasim/[id] rotasının gerçekte çizdiği bileşen — K/Z kapalı, sadece hisseler.</p>
+          <p className="text-xs text-gray-500">/paylasim/[id] rotasının gerçekte çizdiği bileşen — sadece hisseler, K/Z açık, Değer KAPALI (dip toplam hatasının yaşandığı ayar).</p>
           <div className="border border-gray-700 rounded-xl overflow-hidden">
             <ShareView
               title="Hisse portföyüm"
               updatedAt="2026-08-22T09:00:00Z"
               snapshot={buildShareSnapshot(
                 fx.positions,
-                { assetTypes: ['stock'], columns: { ...DEFAULT_SHARE_COLUMNS, unrealizedPL: false, realizedPL: false } } as ShareConfig,
+                { assetTypes: ['stock'], columns: { ...DEFAULT_SHARE_COLUMNS, value: false } } as ShareConfig,
               )}
             />
           </div>
