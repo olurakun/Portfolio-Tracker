@@ -8,6 +8,8 @@ import AssetPicker, { type AssetChoice } from "../components/AssetPicker";
 import BrokerBar from "../components/BrokerBar";
 import PortfolioSwitch from "../components/PortfolioSwitch";
 import DataSources from "../components/DataSources";
+import SummaryBar from "../components/SummaryBar";
+import PortfolioToolbar from "../components/PortfolioToolbar";
 import ShareModal, { type ShareRecord } from "../components/ShareModal";
 import ShareView from "../components/ShareView";
 import { buildShareSnapshot, DEFAULT_SHARE_COLUMNS, type ShareConfig } from "../../lib/shares";
@@ -45,6 +47,7 @@ function FullPageMock() {
   const [showClosed, setShowClosed] = useState(false);
   const [broker, setBroker] = useState<string | null>(null);
   const [portfolio, setPortfolio] = useState('');
+  const [rangeOpen, setRangeOpen] = useState(false);
   const brokerTotals = [
     { broker: 'Midas', value: 1414508.61 },
     { broker: 'Yapı Kredi', value: 2186275.2 },
@@ -54,27 +57,19 @@ function FullPageMock() {
   return (
     <div className="bg-gray-900 text-white p-8 font-sans border border-gray-800 rounded-2xl overflow-hidden">
       <div className="max-w-[1400px] mx-auto">
-        <header className="flex justify-between items-center mb-10 flex-wrap gap-4">
-          <div>
-            <h1 className="text-4xl font-bold">Portföy Takip</h1>
-            <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+        <header className="mb-6">
+          <div className="flex items-baseline justify-between gap-4 flex-wrap mb-4">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Portföy Takip</h1>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
               <span>ornek@eposta.com</span><span>·</span>
               <button className="underline hover:text-white">Çıkış yap</button>
             </div>
           </div>
-          <div className="p-4 rounded-xl border shadow-xl text-right bg-gray-800 border-gray-700">
-            <div className="text-gray-400 text-sm uppercase">Toplam Değer</div>
-            <div className="text-3xl font-bold">3.771.483,81 ₺</div>
-            <div className="text-sm text-gray-400">≈ 110.450,90 $</div>
-            <div className="font-semibold text-green-400">447.416,57 ₺ Toplam K/Z</div>
-            <div className="text-xs text-gray-400 mt-1">
-              Anlık: <span className="text-green-400">447.416,57 ₺</span>{'  ·  '}Realize: <span className="text-green-400">14.060,90 ₺</span>
-            </div>
-            <div className="text-xs text-gray-400 mt-1 pt-1 border-t border-gray-700">
-              USD bazlı K/Z: <span className="text-green-400">12.475,10 $</span>
-              <span className="text-gray-500"> (kur etkisi hariç)</span>
-            </div>
-          </div>
+          <SummaryBar
+            totalValue={fx.totals.value} totalValueUSD={fx.totals.valueUSD}
+            totalUnrealizedPL={fx.totals.unrealizedPL} totalRealizedPL={fx.totals.realizedPL}
+            totalPLUSD={12475.1} mode="live"
+          />
         </header>
 
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
@@ -89,13 +84,12 @@ function FullPageMock() {
           ))}
         </nav>
 
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4 flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Portföyü şu tarihe göre göster</label>
-            <input type="date" className="p-2 rounded bg-gray-700 border border-gray-600" readOnly value="" />
-          </div>
-          <span className="text-sm text-gray-500 pb-2">Boş bırakılırsa bugünü gösterir</span>
-        </div>
+        <PortfolioToolbar
+          asOfDate="" onAsOfDateChange={() => {}} asOfLoading={false}
+          rangeStart="" rangeEnd="" onRangeStartChange={() => {}} onRangeEndChange={() => {}}
+          onCalculateRange={() => {}} rangeLoading={false} rangeResult={null}
+          rangeOpen={rangeOpen} onToggleRange={() => setRangeOpen(o => !o)}
+        />
 
         <BrokerBar totals={brokerTotals} selected={broker} onSelect={setBroker}
           grandTotal={brokerTotals.reduce((a, b) => a + b.value, 0)} />
@@ -104,36 +98,12 @@ function FullPageMock() {
           [ Portföy değeri grafiği — canlı veri çektiği için burada yer tutucu ]
         </div>
 
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-8 flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Başlangıç</label>
-            <input type="date" className="p-2 rounded bg-gray-700 border border-gray-600" readOnly value="" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Bitiş</label>
-            <input type="date" className="p-2 rounded bg-gray-700 border border-gray-600" readOnly value="" />
-          </div>
-          <button className="bg-purple-600 px-4 py-2 rounded font-bold hover:bg-purple-700">Dönem K/Z Hesapla</button>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-600 transition-colors font-semibold">+ Yeni varlık</button>
+          <button className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-600 transition-colors font-semibold">⬆ İşlem içe aktar</button>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-          <div className="xl:col-span-1 space-y-6">
-            <form className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
-              <h2 className="font-bold text-lg text-blue-400 mb-2">Yeni Varlık Ekle</h2>
-              <AssetPicker value={{ symbol: '', name: '', type: 'stock' }} onChange={() => {}} />
-              <button type="button" disabled className="w-full bg-blue-600 py-2 rounded font-bold disabled:opacity-50">Ekle</button>
-            </form>
-            <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
-              <h2 className="font-bold text-lg text-orange-400">İşlem İçe Aktar</h2>
-              <p className="text-xs text-gray-400">
-                Excel, CSV veya PDF. Şablon formatındaki dosyalar doğrudan okunur; aracı
-                kurum ekstresi gibi başka formatlar şablona çevrilerek aktarılır.
-              </p>
-              <a href="#" className="text-xs text-orange-400 underline">⬇ Excel şablonunu indir</a>
-              <input type="file" className="w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-orange-600 file:text-white file:font-bold" />
-            </div>
-          </div>
-          <div className="xl:col-span-3">
+        <div>
             <PortfolioTable
               openPositions={fx.positions} closedPositions={fx.closedPositions} totals={fx.totals}
               isHistorical={false} asOfDate="" loading={false}
@@ -143,7 +113,6 @@ function FullPageMock() {
               onOpenTx={() => {}} showClosed={showClosed} onToggleClosed={() => setShowClosed(s => !s)}
               onRefresh={() => {}} onShare={() => {}}
             />
-          </div>
         </div>
 
         <DataSources />

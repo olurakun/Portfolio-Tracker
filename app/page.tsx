@@ -18,6 +18,10 @@ import BrokerBar from "./components/BrokerBar";
 import PortfolioSwitch from "./components/PortfolioSwitch";
 import DataSources from "./components/DataSources";
 import ShareModal, { type ShareRecord } from "./components/ShareModal";
+import SummaryBar from "./components/SummaryBar";
+import PortfolioToolbar from "./components/PortfolioToolbar";
+import AssetFormModal from "./components/AssetFormModal";
+import ImportModal from "./components/ImportModal";
 import { buildShareSnapshot, type AssetType, type ShareConfig } from "../lib/shares";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
@@ -211,6 +215,14 @@ function Home({ session }: { session: Session }) {
   const [sharesLoading, setSharesLoading] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareError, setShareError] = useState("");
+
+  // Sol kolondaki kalıcı formlar modala taşındı: nadiren kullanılan işlemler
+  // tablodan kalıcı olarak çeyrek genişlik alıyordu ve dar ekranda portföye
+  // inmeden önce ~600px'lik bir engel oluşturuyordu.
+  const [assetModalOpen, setAssetModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  // Dönem K/Z hesaplayıcısı varsayılan olarak katlı.
+  const [rangeOpen, setRangeOpen] = useState(false);
   // Yinelenen satırlar varsayılan olarak atlanır ama karar kullanıcınındır:
   // aynı gün aynı fiyattan iki ayrı alım gerçekten olabilir.
   const [importDupes, setImportDupes] = useState<'skip' | 'include'>('skip');
@@ -272,9 +284,10 @@ function Home({ session }: { session: Session }) {
     if (txData) setTransactions(txData);
   };
 
-  const addAsset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await supabase.from("assets").insert([{ symbol, name, type }]);
+  const addAsset = async () => {
+    if (!symbol.trim()) return;
+    // Ad boş bırakılabiliyor (AssetPicker'da opsiyonel); sembolü ad olarak kullan.
+    await supabase.from("assets").insert([{ symbol: symbol.trim(), name: name.trim() || symbol.trim(), type }]);
     setSymbol(""); setName(""); setType("stock"); fetchData();
   };
 
@@ -752,10 +765,10 @@ function Home({ session }: { session: Session }) {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-8 font-sans">
       <div className="max-w-[1400px] mx-auto">
-        <header className="flex justify-between items-center mb-10">
-          <div>
-            <h1 className="text-4xl font-bold">Portföy Takip</h1>
-            <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+        <header className="mb-6">
+          <div className="flex items-baseline justify-between gap-4 flex-wrap mb-4">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Portföy Takip</h1>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
               <span>{session.user.email}</span>
               <span>·</span>
               <button
@@ -764,28 +777,17 @@ function Home({ session }: { session: Session }) {
               >Çıkış yap</button>
             </div>
           </div>
-          <div className={`p-4 rounded-xl border shadow-xl text-right ${
-            isVirtual ? 'bg-cyan-950/30 border-dashed border-cyan-700/60'
-            : isHistorical ? 'bg-amber-950/40 border-amber-700/60'
-            : 'bg-gray-800 border-gray-700'}`}>
-            <div className="text-gray-400 text-sm uppercase">
-              {isVirtual ? `${activePortfolio} · Senaryo Değeri`
-                : isHistorical ? `${asOfDate} Tarihindeki Değer` : 'Toplam Değer'}
-            </div>
-            <div className="text-3xl font-bold">
-              {asOfLoading ? '…' : totalValue.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺
-            </div>
-            <div className="text-sm text-gray-400">≈ {totalValueUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</div>
-            <div className={`font-semibold ${totalPL >= 0 ? 'text-green-400' : 'text-red-400'}`}>{totalPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺ Toplam K/Z</div>
-            <div className="text-xs text-gray-400 mt-1">
-              Anlık: <span className={totalUnrealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}>{totalUnrealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</span>
-              {'  ·  '}Realize: <span className={totalRealizedPL >= 0 ? 'text-green-400' : 'text-red-400'}>{totalRealizedPL.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ₺</span>
-            </div>
-            <div className="text-xs text-gray-400 mt-1 pt-1 border-t border-gray-700">
-              USD bazlı K/Z: <span className={totalPLUSD >= 0 ? 'text-green-400' : 'text-red-400'}>{totalPLUSD.toLocaleString('en-US', {minimumFractionDigits: 2})} $</span>
-              <span className="text-gray-500"> (kur etkisi hariç)</span>
-            </div>
-          </div>
+
+          <SummaryBar
+            totalValue={totalValue}
+            totalValueUSD={totalValueUSD}
+            totalUnrealizedPL={totalUnrealizedPL}
+            totalRealizedPL={totalRealizedPL}
+            totalPLUSD={totalPLUSD}
+            mode={isVirtual ? 'virtual' : isHistorical ? 'historical' : 'live'}
+            modeLabel={isVirtual ? activePortfolio : asOfDate}
+            loading={asOfLoading}
+          />
         </header>
 
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
@@ -829,30 +831,20 @@ function Home({ session }: { session: Session }) {
         )}
 
         {tab === 'portfolio' && <>
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-4 flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Portföyü şu tarihe göre göster</label>
-            <input
-              type="date"
-              value={asOfDate}
-              max={new Date().toISOString().slice(0, 10)}
-              onChange={(e) => setAsOfDate(e.target.value)}
-              className="p-2 rounded bg-gray-700 border border-gray-600"
-            />
-          </div>
-          {isHistorical ? (
-            <button onClick={() => setAsOfDate("")} className="px-4 py-2 rounded bg-amber-700 hover:bg-amber-600 font-bold">
-              Bugüne dön
-            </button>
-          ) : (
-            <span className="text-sm text-gray-500 pb-2">Boş bırakılırsa bugünü gösterir</span>
-          )}
-          {isHistorical && (
-            <div className="ml-auto text-sm text-amber-400 pb-2">
-              {asOfLoading ? 'O tarihin fiyatları çekiliyor…' : `${asOfDate} tarihindeki portföy görüntüleniyor`}
-            </div>
-          )}
-        </div>
+        <PortfolioToolbar
+          asOfDate={asOfDate}
+          onAsOfDateChange={setAsOfDate}
+          asOfLoading={asOfLoading}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onRangeStartChange={setRangeStart}
+          onRangeEndChange={setRangeEnd}
+          onCalculateRange={calculateRangePL}
+          rangeLoading={rangeLoading}
+          rangeResult={rangeResult}
+          rangeOpen={rangeOpen}
+          onToggleRange={() => setRangeOpen(o => !o)}
+        />
 
         <BrokerBar
           totals={brokerTotals}
@@ -865,97 +857,21 @@ function Home({ session }: { session: Session }) {
           <PortfolioChart assets={assets} transactions={scopedTransactions} fxRates={fxRates} />
         )}
 
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-4 mb-8 flex flex-wrap items-end gap-3">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Başlangıç</label>
-            <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="p-2 rounded bg-gray-700 border border-gray-600" />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Bitiş</label>
-            <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="p-2 rounded bg-gray-700 border border-gray-600" />
-          </div>
-          <button onClick={calculateRangePL} className="bg-purple-600 px-4 py-2 rounded font-bold hover:bg-purple-700">
-            {rangeLoading ? "Hesaplanıyor..." : "Dönem K/Z Hesapla"}
-          </button>
-          {rangeResult !== null && !rangeLoading && (
-            <div className={`ml-auto text-lg font-bold ${rangeResult >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {rangeStart} → {rangeEnd}: {rangeResult.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
-            </div>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <button
+            onClick={() => setAssetModalOpen(true)}
+            className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-600 transition-colors font-semibold"
+          >+ Yeni varlık</button>
+          <button
+            onClick={() => setImportModalOpen(true)}
+            className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-600 transition-colors font-semibold"
+          >⬆ İşlem içe aktar</button>
+          {importError && !importModalOpen && (
+            <span className="text-xs text-red-400">{importError}</span>
           )}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-          <div className="xl:col-span-1 space-y-6">
-             <form onSubmit={addAsset} className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
-                <h2 className="font-bold text-lg text-blue-400 mb-2">Yeni Varlık Ekle</h2>
-
-                <AssetPicker value={assetChoice} onChange={setAssetChoice} />
-
-                <button type="submit" disabled={!symbol.trim()}
-                  className="w-full bg-blue-600 py-2 rounded font-bold disabled:opacity-50">Ekle</button>
-             </form>
-
-             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-3">
-                <h2 className="font-bold text-lg text-orange-400">İşlem İçe Aktar</h2>
-                <p className="text-xs text-gray-400">
-                  Excel, CSV veya PDF. Şablon formatındaki dosyalar doğrudan okunur; aracı
-                  kurum ekstresi gibi başka formatlar şablona çevrilerek aktarılır.
-                </p>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <a
-                    href="/api/template"
-                    className="text-xs text-orange-400 underline hover:text-orange-300"
-                  >
-                    ⬇ Excel şablonunu indir
-                  </a>
-                </div>
-                <ApiKeySettings forceOpen={needsApiKey} />
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xlsm,.txt,.pdf"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportFile(f); e.target.value = ''; }}
-                  className="w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-orange-600 file:text-white file:font-bold"
-                />
-
-                {pendingFile && (
-                  <div className="bg-gray-900/60 border border-gray-700 rounded p-3 space-y-2">
-                    <div className="text-xs text-gray-300">
-                      <span className="font-bold">{pendingFile.name}</span> şablon formatında değil.
-                      {convertReason && <span className="text-gray-500"> {convertReason}</span>}
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      Dosyayı şablona çevirebilirim. Sonuç doğrudan kaydedilmez; her satırı
-                      onaylamadan önce göreceksin.
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={convertPendingFile}
-                        disabled={importBusy}
-                        className="text-xs px-3 py-1.5 rounded bg-orange-600 hover:bg-orange-700 font-bold disabled:opacity-50"
-                      >
-                        {importBusy ? 'Çevriliyor...' : 'Şablona çevir'}
-                      </button>
-                      <button
-                        onClick={() => { setPendingFile(null); setConvertReason(''); }}
-                        disabled={importBusy}
-                        className="text-xs px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50"
-                      >
-                        Vazgeç
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {importBusy && (
-                  <div className="text-xs text-gray-400">
-                    {pendingFile ? 'Dosya okunuyor, uzun ekstrelerde bir dakikayı bulabilir...' : 'İşleniyor...'}
-                  </div>
-                )}
-                {importError && <div className="text-xs text-red-400">{importError}</div>}
-             </div>
-          </div>
-
-          <div className="xl:col-span-3">
+        <div>
             <PortfolioTable
               openPositions={openPositions}
               closedPositions={closedPositions}
@@ -983,12 +899,32 @@ function Home({ session }: { session: Session }) {
                 : undefined
               }
             />
-          </div>
         </div>
         </>}
 
         <DataSources />
       </div>
+
+      <AssetFormModal
+        open={assetModalOpen}
+        onClose={() => setAssetModalOpen(false)}
+        value={assetChoice}
+        onChange={setAssetChoice}
+        onSubmit={() => { addAsset(); setAssetModalOpen(false); }}
+      />
+
+      <ImportModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        onFile={handleImportFile}
+        busy={importBusy}
+        error={importError}
+        pendingFile={pendingFile}
+        convertReason={convertReason}
+        onConvert={convertPendingFile}
+        onCancelConvert={() => { setPendingFile(null); setConvertReason(''); }}
+        needsApiKey={needsApiKey}
+      />
 
       <ShareModal
         open={shareModalOpen}
@@ -1011,7 +947,7 @@ function Home({ session }: { session: Session }) {
             className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-md p-6 space-y-3"
           >
             <div className="flex justify-between items-center">
-              <h2 className="font-bold text-lg text-green-400">
+              <h2 className="font-bold text-lg">
                 {editingTx
                   ? 'İşlemi Düzenle'
                   : `${txNewAsset ? (symbol || 'Yeni varlık') : (assets.find(a => String(a.id) === String(selectedAssetId))?.symbol ?? 'İşlem')} — İşlem Gir`}

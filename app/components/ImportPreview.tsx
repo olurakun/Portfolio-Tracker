@@ -57,7 +57,7 @@ export default function ImportPreview({
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 sm:p-6 z-50">
       <div className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col">
         <div className="p-4 border-b border-gray-700">
-          <h2 className="font-bold text-lg text-orange-400">İçe Aktarma Önizlemesi</h2>
+          <h2 className="font-bold text-lg">İçe Aktarma Önizlemesi</h2>
           <p className="text-sm text-gray-400 mt-1">
             {willImport} satır aktarılacak
             {errorCount > 0 && `, ${errorCount} hatalı (atlanacak)`}

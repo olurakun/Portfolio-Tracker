@@ -97,7 +97,7 @@ export default function ShareModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 className="font-bold text-lg text-orange-400">Portföyü Paylaş</h2>
+          <h2 className="font-bold text-lg">Portföyü Paylaş</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
         </div>
 

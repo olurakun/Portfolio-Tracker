@@ -209,7 +209,7 @@ export default function PortfolioChart({
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-8">
       <div className="p-4 border-b border-gray-700 flex flex-wrap items-center gap-3">
-        <h2 className="font-bold text-lg text-purple-400">Portföy Değeri</h2>
+        <h2 className="font-bold text-lg">Portföy Değeri</h2>
 
         <div className="flex gap-1 ml-auto">
           {RANGES.map(r => (

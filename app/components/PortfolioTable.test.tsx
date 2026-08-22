@@ -33,10 +33,18 @@ const defaults = {
 const setup = (props: Partial<typeof defaults> = {}) =>
   render(<PortfolioTable {...defaults} {...props} />);
 
+// Bileşen iki düzen birden render ediyor: dar ekranda kart listesi (md:hidden),
+// geniş ekranda tablo (hidden md:block). Tarayıcıda hangisinin görüneceğini CSS
+// belirliyor ve `display:none` olan erişilebilirlik ağacından da düşüyor — ama
+// jsdom medya sorgusu uygulamadığı için İKİSİ de DOM'da. Bu yüzden sorgular
+// hangi düzeni test ettiğini açıkça söylemeli.
+const desktop = (c: HTMLElement) => within(c.querySelector('table') as HTMLElement);
+const mobile = (c: HTMLElement) => within(c.querySelector('.md\\:hidden') as HTMLElement);
+
 describe('PortfolioTable', () => {
   it('varlık tipini rozetle gösterir', () => {
-    setup({ openPositions: [row({ type: 'fund', symbol: 'TLY' })] });
-    expect(screen.getByText('Fon')).toBeInTheDocument();
+    const { container } = setup({ openPositions: [row({ type: 'fund', symbol: 'TLY' })] });
+    expect(desktop(container).getByText('Fon')).toBeInTheDocument();
   });
 
   // Geçmiş bir tarihe bakarken işlem girmek anlamsız: o günün fiyatı da elle
@@ -71,21 +79,21 @@ describe('PortfolioTable', () => {
   });
 
   it('pozisyon varken toplam satırını gösterir', () => {
-    setup();
-    expect(screen.getByText('TOPLAM')).toBeInTheDocument();
+    const { container } = setup();
+    expect(desktop(container).getByText('TOPLAM')).toBeInTheDocument();
   });
 
   it('kapanmış pozisyonlar varsayılan olarak katlı durur', async () => {
     const onToggleClosed = vi.fn();
     const closed = [row({ id: '2', symbol: 'ASELS', totalQty: 0, realizedPL: -3204.5 })];
-    const { rerender } = setup({ closedPositions: closed, onToggleClosed });
+    const { container, rerender } = setup({ closedPositions: closed, onToggleClosed });
 
     expect(screen.queryByText('ASELS')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByText(/Geçmiş pozisyonlar \(1\)/));
+    await userEvent.click(desktop(container).getByText(/Geçmiş pozisyonlar \(1\)/));
     expect(onToggleClosed).toHaveBeenCalled();
 
     rerender(<PortfolioTable {...defaults} closedPositions={closed} showClosed />);
-    expect(screen.getByText('ASELS')).toBeInTheDocument();
+    expect(desktop(container).getByText('ASELS')).toBeInTheDocument();
   });
 
   it('sütun başlığına tıklayınca sıralama isteği gönderir', async () => {
@@ -106,6 +114,54 @@ describe('PortfolioTable', () => {
   it('yenile butonu yüklenirken kapalıdır', () => {
     setup({ loading: true });
     expect(screen.getByRole('button', { name: 'Fiyatları yenile' })).toBeDisabled();
+  });
+
+  // DAR EKRAN DÜZENİ. Tablo 375px'de değer ve K/Z'yi yatay kaydırmanın
+  // arkasında bırakıyordu; portföye telefondan bakmanın asıl sebebi buydu.
+  describe('dar ekran kart düzeni', () => {
+    it('her pozisyon için değer ve anlık K/Z kartta görünür', () => {
+      // İki pozisyon: tek pozisyonda kartın değeri ile TOPLAM aynı çıkıp
+      // testin neyi doğruladığı belirsizleşiyor.
+      const { container } = setup({
+        openPositions: [row(), row({ id: '2', symbol: 'AAPL', value: 12000, unrealizedPL: -800 })],
+        totals: { value: 42525, valueUSD: 1200, unrealizedPL: 3431, realizedPL: 0 },
+      });
+      const m = mobile(container);
+      expect(m.getByText('THYAO')).toBeInTheDocument();
+      expect(m.getByText('AAPL')).toBeInTheDocument();
+      expect(m.getByText('30.525,00 ₺')).toBeInTheDocument();
+      expect(m.getByText('+4.231,00 ₺')).toBeInTheDocument();
+      // Zarar da kartta ve kırmızı görünmeli.
+      expect(m.getByText('-800,00 ₺').className).toContain('text-red-400');
+    });
+
+    it('kartta da toplam gösterilir', () => {
+      const { container } = setup();
+      expect(mobile(container).getByText('TOPLAM')).toBeInTheDocument();
+    });
+
+    it('geçmiş tarih modunda kartta işlem butonu çıkmaz', () => {
+      const { container } = setup({ isHistorical: true, asOfDate: '2026-03-14' });
+      expect(mobile(container).queryByRole('button', { name: 'Al' })).not.toBeInTheDocument();
+    });
+
+    it('kart butonları işlem modalını doğru tiple açar', async () => {
+      const onOpenTx = vi.fn();
+      const { container } = setup({ onOpenTx });
+      await userEvent.click(mobile(container).getByRole('button', { name: 'Sat' }));
+      expect(onOpenTx).toHaveBeenCalledWith('1', 'sell');
+    });
+  });
+
+  // Finansal bir tabloda yeşil/kırmızı YALNIZCA kâr/zarar demeli. Al/Sat
+  // butonları da yeşil/kırmızıyken, kırmızı bir zarar rakamının yanında
+  // kırmızı bir "Sat" butonu duruyordu.
+  it('işlem butonları kâr/zarar renklerini kullanmaz', () => {
+    const { container } = setup();
+    for (const name of ['THYAO al', 'THYAO sat']) {
+      const cls = screen.getByTitle(name).className;
+      expect(cls).not.toMatch(/text-(green|red)-400/);
+    }
   });
 
   it('adet ve fiyat sütunları sağa yaslı ve tabular-nums', () => {

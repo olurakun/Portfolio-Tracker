@@ -333,7 +333,7 @@ export default function Comparison({
 
       <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
         <div className="p-4 border-b border-gray-700">
-          <h2 className="font-bold text-lg text-purple-400">Getiri Karşılaştırması</h2>
+          <h2 className="font-bold text-lg">Getiri Karşılaştırması</h2>
           <p className="text-xs text-gray-400 mt-1">
             Tüm varlıklar {start} tarihinde 100 kabul edildi; çizgiler o günden bu yana yüzde getiriyi gösterir.
           </p>

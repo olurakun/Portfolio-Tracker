@@ -147,7 +147,7 @@ export default function TransactionsTab({
 
       <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
         <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h2 className="font-bold text-lg text-purple-400">İşlemler</h2>
+          <h2 className="font-bold text-lg">İşlemler</h2>
           <span className="text-sm text-gray-400">{rows.length} kayıt</span>
         </div>
 

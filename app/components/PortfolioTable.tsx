@@ -90,6 +90,67 @@ function SkeletonRows() {
   );
 }
 
+/**
+ * Dar ekranda tek bir pozisyon. Tablo 375px'de yalnızca ilk iki sütununu
+ * gösterebiliyor; değer ve K/Z yatay kaydırmanın arkasında kalıyordu, yani
+ * telefonda portföye bakmanın asıl sebebi görünmüyordu. Kartta hiyerarşi
+ * yeniden kuruluyor: sembol, değer ve K/Z birlikte; adet ve fiyat ikincil.
+ */
+function PositionCard({
+  item, share, isHistorical, onOpenTx,
+}: {
+  item: PortfolioRow;
+  share: number;
+  isHistorical: boolean;
+  onOpenTx: (id: string, type: 'buy' | 'sell' | 'dividend') => void;
+}) {
+  return (
+    <div className="border-b border-gray-700/60 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-bold">{item.symbol}</span>
+          <TypeBadge type={item.type} />
+        </div>
+        <div className="text-right shrink-0">
+          <div className="font-bold tabular-nums whitespace-nowrap">{tl(item.value)}</div>
+          <div className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap">{usd(item.valueUSD)}</div>
+        </div>
+      </div>
+
+      <div className="flex items-end justify-between gap-3 mt-2">
+        <div className="text-xs text-gray-500 tabular-nums min-w-0">
+          {item.totalQty.toLocaleString('tr-TR', { maximumFractionDigits: 6 })} × {tl(item.currentPrice)}
+          <span className="text-gray-600"> · %{share.toFixed(1)}</span>
+        </div>
+        <div className="text-right shrink-0">
+          <div className={`text-sm font-semibold tabular-nums whitespace-nowrap ${plColor(item.unrealizedPL)}`}>
+            {item.unrealizedPL >= 0 ? '+' : ''}{tl(item.unrealizedPL)}
+          </div>
+          {item.realizedPL !== 0 && (
+            <div className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap">
+              realize <span className={plColor(item.realizedPL)}>
+                {item.realizedPL >= 0 ? '+' : ''}{tl(item.realizedPL)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {!isHistorical && (
+        <div className="flex gap-1.5 mt-3">
+          {([['buy', 'Al'], ['sell', 'Sat'], ['dividend', 'Temettü']] as const).map(([kind, label]) => (
+            <button
+              key={kind}
+              onClick={() => onOpenTx(item.id, kind)}
+              className="flex-1 py-1.5 rounded text-xs font-semibold bg-gray-700/70 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors"
+            >{label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PortfolioTable({
   openPositions, closedPositions, totals, isHistorical, asOfDate, loading,
   sortKey, sortDir, onSort, editingPriceIds, onToggleEditPrice, onPriceChange,
@@ -126,7 +187,7 @@ export default function PortfolioTable({
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700">
       <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-        <h2 className="font-bold text-lg text-purple-400">Portföy</h2>
+        <h2 className="font-bold text-lg">Portföy</h2>
         <div className="flex items-center gap-1">
         {onShare && (
           <button
@@ -175,9 +236,58 @@ export default function PortfolioTable({
         </div>
       )}
 
-      {/* Dar ekranda tablo kırpılıyordu (kapsayıcı overflow-hidden idi);
-          artık yatay kaydırılıyor ve başlık satırı yapışkan. */}
-      <div className={`overflow-x-auto rounded-b-xl ${isEmpty ? 'hidden' : ''}`}>
+      {/* DAR EKRAN: tablo yerine kart listesi. Tablo 375px'de sekiz sütunu
+          taşıyamıyor; yatay kaydırma teknik olarak çalışsa da değer ve K/Z
+          görünmediği için portföye bakmanın anlamı kalmıyordu. */}
+      {!isEmpty && !showSkeleton && (
+        <div className="md:hidden">
+          {openPositions.map(item => (
+            <PositionCard
+              key={item.id}
+              item={item}
+              share={totals.value > 0 ? (item.value / totals.value) * 100 : 0}
+              isHistorical={isHistorical}
+              onOpenTx={onOpenTx}
+            />
+          ))}
+
+          {openPositions.length > 0 && (
+            <div className="flex items-baseline justify-between px-4 py-3 bg-gray-900/40 border-t-2 border-gray-600">
+              <span className="font-bold">TOPLAM</span>
+              <div className="text-right shrink-0">
+                <div className="font-bold tabular-nums whitespace-nowrap">{tl(totals.value)}</div>
+                <div className={`text-sm font-semibold tabular-nums whitespace-nowrap ${plColor(totals.unrealizedPL)}`}>
+                  {totals.unrealizedPL >= 0 ? '+' : ''}{tl(totals.unrealizedPL)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {closedPositions.length > 0 && (
+            <button
+              onClick={onToggleClosed}
+              className="w-full text-left px-4 py-3 text-sm text-gray-400 hover:text-white hover:bg-gray-700/30 transition-colors"
+            >
+              {showClosed ? '▾' : '▸'} Geçmiş pozisyonlar ({closedPositions.length})
+            </button>
+          )}
+          {showClosed && closedPositions.map(item => (
+            <div key={item.id} className="border-b border-gray-700/60 px-4 py-3 flex items-center justify-between gap-3 text-gray-400">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-bold">{item.symbol}</span>
+                <TypeBadge type={item.type} />
+              </div>
+              <div className={`text-sm font-semibold tabular-nums whitespace-nowrap ${plColor(item.realizedPL)}`}>
+                {item.realizedPL >= 0 ? '+' : ''}{tl(item.realizedPL)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* GENİŞ EKRAN: tam tablo. Yine de yatay kaydırılabilir (tablet ve dar
+          pencerelerde sekiz sütun sığmayabiliyor), başlık satırı yapışkan. */}
+      <div className={`hidden md:block overflow-x-auto rounded-b-xl ${isEmpty ? 'md:hidden' : ''}`}>
         <table className="w-full text-left min-w-[900px]">
           <thead className="bg-gray-900/50 text-gray-400 text-xs uppercase tracking-wide sticky top-0 z-10">
             <tr>
@@ -255,11 +365,11 @@ export default function PortfolioTable({
                     {!isHistorical && (
                       <div className="flex gap-1 justify-end">
                         <button onClick={() => onOpenTx(item.id, 'buy')} title={`${item.symbol} al`}
-                          className="px-2 py-1 rounded text-xs font-bold bg-green-600/15 text-green-400 hover:bg-green-600 hover:text-white transition-colors">Al</button>
+                          className="px-2 py-1 rounded text-xs font-semibold bg-gray-700/70 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors">Al</button>
                         <button onClick={() => onOpenTx(item.id, 'sell')} title={`${item.symbol} sat`}
-                          className="px-2 py-1 rounded text-xs font-bold bg-red-600/15 text-red-400 hover:bg-red-600 hover:text-white transition-colors">Sat</button>
+                          className="px-2 py-1 rounded text-xs font-semibold bg-gray-700/70 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors">Sat</button>
                         <button onClick={() => onOpenTx(item.id, 'dividend')} title={`${item.symbol} temettü gir`}
-                          className="px-2 py-1 rounded text-xs font-bold bg-blue-600/15 text-blue-400 hover:bg-blue-600 hover:text-white transition-colors">₺</button>
+                          className="px-2 py-1 rounded text-xs font-semibold bg-gray-700/70 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors">₺</button>
                       </div>
                     )}
                   </td>
@@ -327,7 +437,7 @@ export default function PortfolioTable({
                   {!isHistorical && (
                     <div className="flex justify-end">
                       <button onClick={() => onOpenTx(item.id, 'buy')} title={`${item.symbol} al`}
-                        className="px-2 py-1 rounded text-xs font-bold bg-green-600/15 text-green-400 hover:bg-green-600 hover:text-white transition-colors">Al</button>
+                        className="px-2 py-1 rounded text-xs font-semibold bg-gray-700/70 text-gray-300 hover:bg-gray-600 hover:text-white transition-colors">Al</button>
                     </div>
                   )}
                 </td>
