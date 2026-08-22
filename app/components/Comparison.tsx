@@ -445,8 +445,8 @@ export default function Comparison({
                   {showTable ? 'Tabloyu gizle' : 'Veriyi tablo olarak gör'}
                 </button>
                 {showTable && (
-                  <div className="mt-3 border border-gray-700 rounded overflow-hidden">
-                    <table className="w-full text-sm">
+                  <div className="mt-3 border border-gray-700 rounded overflow-x-auto">
+                    <table className="w-full text-sm min-w-[420px]">
                       <thead className="bg-gray-900/50 text-gray-400">
                         <tr>
                           <th className="p-2 text-left">Varlık</th>

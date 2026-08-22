@@ -13,7 +13,7 @@ import TransactionsTab from "./components/TransactionsTab";
 import ApiKeySettings from "./components/ApiKeySettings";
 import PortfolioTable from "./components/PortfolioTable";
 import ImportPreview from "./components/ImportPreview";
-import AssetPicker, { type AssetChoice } from "./components/AssetPicker";
+import { type AssetChoice } from "./components/AssetPicker";
 import BrokerBar from "./components/BrokerBar";
 import PortfolioSwitch from "./components/PortfolioSwitch";
 import DataSources from "./components/DataSources";
@@ -22,6 +22,7 @@ import SummaryBar from "./components/SummaryBar";
 import PortfolioToolbar from "./components/PortfolioToolbar";
 import AssetFormModal from "./components/AssetFormModal";
 import ImportModal from "./components/ImportModal";
+import TransactionModal from "./components/TransactionModal";
 import { buildShareSnapshot, type AssetType, type ShareConfig } from "../lib/shares";
 import { readUserApiKey } from "../lib/apiKey";
 import { sortPositions, nextSortState, type SortKey, type SortDir } from "../lib/sortPositions";
@@ -294,8 +295,7 @@ function Home({ session }: { session: Session }) {
   const getHeldQty = (assetId: string) =>
     heldQuantity(scopedTransactions.filter(tx => tx.asset_id === assetId));
 
-  const addTransaction = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const addTransaction = async () => {
 
     // Modal içinden yeni varlık açılabiliyor; işlemden önce varlık oluşturulur.
     let assetId = selectedAssetId;
@@ -939,113 +939,35 @@ function Home({ session }: { session: Session }) {
         onDelete={deleteShare}
       />
 
-      {txModalOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-6 z-50" onClick={() => setTxModalOpen(false)}>
-          <form
-            onSubmit={addTransaction}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-gray-800 border border-gray-700 rounded-xl w-full max-w-md p-6 space-y-3"
-          >
-            <div className="flex justify-between items-center">
-              <h2 className="font-bold text-lg">
-                {editingTx
-                  ? 'İşlemi Düzenle'
-                  : `${txNewAsset ? (symbol || 'Yeni varlık') : (assets.find(a => String(a.id) === String(selectedAssetId))?.symbol ?? 'İşlem')} — İşlem Gir`}
-              </h2>
-              <button type="button" onClick={() => setTxModalOpen(false)} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
-            </div>
-
-            {txNewAsset ? (
-              <div className="bg-gray-700/50 border border-gray-600 rounded p-3 space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-gray-400">Yeni varlık</span>
-                  <button type="button" onClick={() => { setTxNewAsset(false); setSymbol(""); setName(""); }} className="text-xs text-gray-400 underline">Listeden seç</button>
-                </div>
-                <AssetPicker value={assetChoice} onChange={setAssetChoice} autoFocus />
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <select
-                  value={selectedAssetId}
-                  onChange={(e) => setSelectedAssetId(e.target.value)}
-                  className="flex-1 p-2 rounded bg-gray-700 border border-gray-600"
-                >
-                  {assets.map(a => <option key={a.id} value={a.id}>{a.symbol}</option>)}
-                </select>
-                {!editingTx && (
-                  <button type="button" onClick={() => { setTxNewAsset(true); setSymbol(""); setName(""); }}
-                    title="Portföyde olmayan bir varlık ekle"
-                    className="px-3 rounded bg-gray-700 hover:bg-gray-600 text-sm">+ Yeni</button>
-                )}
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setTxType('buy')} className={`flex-1 py-1.5 rounded text-sm ${txType==='buy' ? 'bg-green-600' : 'bg-gray-700'}`}>Alım</button>
-              <button type="button" onClick={() => setTxType('sell')} className={`flex-1 py-1.5 rounded text-sm ${txType==='sell' ? 'bg-red-600' : 'bg-gray-700'}`}>Satım</button>
-              <button type="button" onClick={() => setTxType('dividend')} className={`flex-1 py-1.5 rounded text-sm ${txType==='dividend' ? 'bg-blue-600' : 'bg-gray-700'}`}>Temettü</button>
-            </div>
-
-            {txType === 'sell' && (
-              <div className="text-xs text-gray-400">Elinizdeki adet: {heldQuantity(scopedTransactions.filter(tx => String(tx.asset_id) === String(selectedAssetId) && tx.id !== editingTx?.id)).toLocaleString('tr-TR', { maximumFractionDigits: 6 })}</div>
-            )}
-
-            {txType === 'dividend' ? (
-              <input type="number" step="any" placeholder="Net temettü tutarı (toplam)" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required autoFocus />
-            ) : (
-              <>
-                <input type="number" step="any" placeholder="Adet" value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full p-2 rounded bg-gray-700 border border-gray-600" required autoFocus />
-                <div className="flex gap-2">
-                  <input type="number" step="any" placeholder="Fiyat" value={price} onChange={(e) => { setPrice(e.target.value); setPriceLookup('idle'); }} className="flex-1 p-2 rounded bg-gray-700 border border-gray-600" required />
-                  <button
-                    type="button"
-                    onClick={fillHistoricalPrice}
-                    disabled={priceLookup === 'loading'}
-                    title="Seçili tarihteki fiyatı getir"
-                    className="px-3 rounded bg-gray-700 hover:bg-gray-600 text-xs whitespace-nowrap disabled:opacity-50"
-                  >
-                    {priceLookup === 'loading' ? '...' : 'O günkü fiyat'}
-                  </button>
-                </div>
-                {priceLookup === 'error' && (
-                  <div className="text-xs text-red-400">O tarihin fiyatı bulunamadı, elle gir.</div>
-                )}
-              </>
-            )}
-            <div className="flex gap-2">
-              <input type="date" value={txDate} onChange={(e) => setTxDate(e.target.value)} className="flex-1 p-2 rounded bg-gray-700 border border-gray-600" required />
-              {/* Fiyatın para birimi: ABD hisseleri USD işlem görür, TL varsayılırsa maliyet tamamen yanlış çıkar. */}
-              <select value={txCurrency} onChange={(e) => setTxCurrency(e.target.value)}
-                title="Girdiğin fiyatın para birimi"
-                className="p-2 rounded bg-gray-700 border border-gray-600">
-                <option value="TRY">₺ TRY</option>
-                <option value="USD">$ USD</option>
-              </select>
-            </div>
-
-            {/* Aracı kurum serbest metin: kurum listesi sabit değil, daha önce
-                yazdıkların öneri olarak geliyor. */}
-            <input
-              type="text"
-              list="broker-suggestions"
-              placeholder="Aracı kurum (Midas, Yapı Kredi...)"
-              value={txBroker}
-              onChange={(e) => setTxBroker(e.target.value)}
-              className="w-full p-2 rounded bg-gray-700 border border-gray-600 text-sm"
-            />
-            <datalist id="broker-suggestions">
-              {brokerList.filter(Boolean).map(b => <option key={b} value={b} />)}
-            </datalist>
-
-            <div className="flex gap-2 pt-1">
-              <button type="button" onClick={() => setTxModalOpen(false)} className="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600">İptal</button>
-              <button type="submit" className={`flex-1 py-2 rounded font-bold ${txType==='sell' ? 'bg-red-600 hover:bg-red-700' : txType==='dividend' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'}`}>
-                {editingTx ? 'Güncelle' : 'Kaydet'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <TransactionModal
+        open={txModalOpen}
+        onClose={() => setTxModalOpen(false)}
+        editing={!!editingTx}
+        assets={assets}
+        value={{
+          txType: txType as 'buy' | 'sell' | 'dividend',
+          quantity, price, date: txDate, currency: txCurrency, broker: txBroker,
+          assetId: selectedAssetId, newAsset: txNewAsset, choice: assetChoice,
+        }}
+        onChange={(next) => {
+          setTxType(next.txType);
+          setQuantity(next.quantity);
+          // Fiyat elle değişince "bulunamadı" uyarısı kalkmalı.
+          if (next.price !== price) { setPrice(next.price); setPriceLookup('idle'); }
+          setTxDate(next.date);
+          setTxCurrency(next.currency);
+          setTxBroker(next.broker);
+          setSelectedAssetId(next.assetId);
+          setTxNewAsset(next.newAsset);
+          setAssetChoice(next.choice);
+        }}
+        onSubmit={addTransaction}
+        heldQuantity={heldQuantity(scopedTransactions.filter(
+          tx => String(tx.asset_id) === String(selectedAssetId) && tx.id !== editingTx?.id))}
+        onFetchHistoricalPrice={fillHistoricalPrice}
+        priceLookup={priceLookup}
+        brokers={brokerList.filter(Boolean)}
+      />
 
       {importRows && (
         <ImportPreview

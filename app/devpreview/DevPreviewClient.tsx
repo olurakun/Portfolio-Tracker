@@ -11,6 +11,7 @@ import DataSources from "../components/DataSources";
 import SummaryBar from "../components/SummaryBar";
 import PortfolioToolbar from "../components/PortfolioToolbar";
 import ShareModal, { type ShareRecord } from "../components/ShareModal";
+import TransactionModal, { type TransactionForm } from "../components/TransactionModal";
 import ShareView from "../components/ShareView";
 import { buildShareSnapshot, DEFAULT_SHARE_COLUMNS, type ShareConfig } from "../../lib/shares";
 import type { SortKey, SortDir } from "../../lib/sortPositions";
@@ -47,6 +48,13 @@ function FullPageMock() {
   const [showClosed, setShowClosed] = useState(false);
   const [broker, setBroker] = useState<string | null>(null);
   const [portfolio, setPortfolio] = useState('');
+  const [txModalOpen, setTxModalOpen] = useState(false);
+  const [txEditing, setTxEditing] = useState(false);
+  const [txForm, setTxForm] = useState<TransactionForm>({
+    txType: 'buy', quantity: '', price: '', date: '2026-08-20',
+    currency: 'TRY', broker: '', assetId: '1', newAsset: false,
+    choice: { symbol: '', name: '', type: 'stock' },
+  });
   const [rangeOpen, setRangeOpen] = useState(false);
   const brokerTotals = [
     { broker: 'Midas', value: 1414508.61 },
@@ -146,6 +154,13 @@ export default function DevPreviewClient() {
   const [broker, setBroker] = useState<string | null>(null);
   const [importBroker, setImportBroker] = useState<string | null>(null);
   const [portfolio, setPortfolio] = useState('');
+  const [txModalOpen, setTxModalOpen] = useState(false);
+  const [txEditing, setTxEditing] = useState(false);
+  const [txForm, setTxForm] = useState<TransactionForm>({
+    txType: 'buy', quantity: '', price: '', date: '2026-08-20',
+    currency: 'TRY', broker: '', assetId: '1', newAsset: false,
+    choice: { symbol: '', name: '', type: 'stock' },
+  });
 
   const isEmptyCase = tableCase === 'empty' || tableCase === 'loading';
   // Yinelenen bayrakları senaryoya göre: 1. ve 3. satır zaten portföyde varmış gibi.
@@ -200,6 +215,33 @@ export default function DevPreviewClient() {
             showClosed={showClosed}
             onToggleClosed={() => setShowClosed(s => !s)}
             onRefresh={() => {}}
+          />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide">İşlem modalı</h2>
+          <div className="flex gap-2">
+            <button onClick={() => { setTxEditing(false); setTxModalOpen(true); }}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-purple-600 hover:bg-purple-700">
+              Yeni işlem
+            </button>
+            <button onClick={() => { setTxEditing(true); setTxModalOpen(true); }}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-gray-700 hover:bg-gray-600">
+              Düzenleme kipi
+            </button>
+          </div>
+          <TransactionModal
+            open={txModalOpen}
+            onClose={() => setTxModalOpen(false)}
+            editing={txEditing}
+            assets={[{ id: '1', symbol: 'THYAO' }, { id: '2', symbol: 'AAPL' }, { id: '3', symbol: 'SASA' }]}
+            value={txForm}
+            onChange={setTxForm}
+            onSubmit={() => setTxModalOpen(false)}
+            heldQuantity={137.5}
+            onFetchHistoricalPrice={() => setTxForm(f => ({ ...f, price: '305.25' }))}
+            priceLookup="idle"
+            brokers={['Midas', 'Yapı Kredi', 'İş Yatırım']}
           />
         </section>
 

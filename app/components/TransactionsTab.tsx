@@ -8,8 +8,12 @@ type Asset = { id: string | number; symbol: string; type: string };
 type Tx = Transaction & { id: number | string; created_at?: string; broker?: string | null };
 
 const TYPE_LABEL: Record<string, string> = { buy: 'Alım', sell: 'Satım', dividend: 'Temettü' };
+// İşlem tipi RENKLE değil kelimeyle ayrışıyor: yeşil/kırmızı bu uygulamada
+// yalnızca kâr/zarar demek (bkz. Faz 6 kapanışı). "Alım"/"Satım" zaten
+// tek başına anlaşılır; renk vermek kullanıcıya portföy sekmesinde öğrendiği
+// anlamı burada yanlış okutma riski taşıyordu.
 const TYPE_CLASS: Record<string, string> = {
-  buy: 'text-green-400', sell: 'text-red-400', dividend: 'text-blue-400',
+  buy: 'text-gray-300', sell: 'text-gray-300', dividend: 'text-gray-300',
 };
 
 /**
@@ -113,7 +117,7 @@ export default function TransactionsTab({
             </select>
           </div>
         )}
-        <button onClick={onAdd} className="ml-auto bg-green-600 hover:bg-green-700 px-4 py-2 rounded font-bold text-sm">
+        <button onClick={onAdd} className="ml-auto bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded font-bold text-sm">
           + İşlem ekle
         </button>
       </div>
@@ -151,18 +155,69 @@ export default function TransactionsTab({
           <span className="text-sm text-gray-400">{rows.length} kayıt</span>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* DAR EKRAN: sekiz sütunlu tablo 375px'e sığmıyor (portföy tablosunda
+            çözdüğümüz sorunun aynısı). Kartta hiyerarşi: varlık + tutar üstte,
+            tarih/adet/fiyat ikincil, eylemler altta. */}
+        <div className="md:hidden">
+          {rows.map(tx => {
+            const asset = assetById.get(String(tx.asset_id));
+            const cur = (tx.currency || 'TRY').toUpperCase();
+            const total = amountTL(tx);
+            const broker = normalizeBroker(tx.broker);
+            return (
+              <div key={String(tx.id)} className="border-b border-gray-700/60 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-bold">{asset?.symbol ?? '—'}</span>
+                    <span className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-gray-900/70 border border-gray-700 ${TYPE_CLASS[tx.type] ?? ''}`}>
+                      {TYPE_LABEL[tx.type] ?? tx.type}
+                    </span>
+                  </div>
+                  <div className="font-bold tabular-nums whitespace-nowrap shrink-0">
+                    {total === null ? '—' : `${total.toLocaleString('tr-TR', { maximumFractionDigits: 0 })} ₺`}
+                  </div>
+                </div>
+
+                <div className="flex items-baseline justify-between gap-3 mt-1.5 text-xs text-gray-500">
+                  <span className="tabular-nums">{tx.date}</span>
+                  <span className="tabular-nums whitespace-nowrap">
+                    {tx.type === 'dividend'
+                      ? `${Number(tx.price).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${cur === 'USD' ? '$' : '₺'}`
+                      : `${Number(tx.quantity).toLocaleString('tr-TR', { maximumFractionDigits: 6 })} × ${Number(tx.price).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ${cur === 'USD' ? '$' : '₺'}`}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 mt-2.5">
+                  <span className="text-xs text-gray-600 truncate">{broker || '—'}</span>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button onClick={() => onEdit(tx)}
+                      className="px-2.5 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600">Düzenle</button>
+                    <button onClick={() => onDelete(tx)}
+                      className="px-2.5 py-1 rounded text-xs bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white transition-colors">Sil</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {rows.length === 0 && (
+            <div className="px-4 py-10 text-center text-gray-500 text-sm">
+              {transactions.length === 0 ? 'Henüz işlem yok.' : 'Bu filtreye uyan işlem yok.'}
+            </div>
+          )}
+        </div>
+
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-900/50 text-gray-400">
               <tr>
-                <th className="p-3">Tarih</th>
-                <th className="p-3">Varlık</th>
-                <th className="p-3">İşlem</th>
-                <th className="p-3 text-right">Adet</th>
-                <th className="p-3 text-right">Fiyat</th>
-                <th className="p-3 text-right">Tutar (₺)</th>
-                <th className="p-3">Aracı</th>
-                <th className="p-3"></th>
+                <th className="px-3 py-2.5">Tarih</th>
+                <th className="px-3 py-2.5">Varlık</th>
+                <th className="px-3 py-2.5">İşlem</th>
+                <th className="px-3 py-2.5 text-right">Adet</th>
+                <th className="px-3 py-2.5 text-right">Fiyat</th>
+                <th className="px-3 py-2.5 text-right">Tutar (₺)</th>
+                <th className="px-3 py-2.5">Aracı</th>
+                <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
@@ -172,23 +227,23 @@ export default function TransactionsTab({
                 const total = amountTL(tx);
                 return (
                   <tr key={String(tx.id)} className="border-b border-gray-700 hover:bg-gray-750">
-                    <td className="p-3 tabular-nums text-gray-300">{tx.date}</td>
-                    <td className="p-3 font-bold">{asset?.symbol ?? '—'}</td>
-                    <td className={`p-3 ${TYPE_CLASS[tx.type] ?? ''}`}>{TYPE_LABEL[tx.type] ?? tx.type}</td>
-                    <td className="p-3 text-right tabular-nums">
+                    <td className="px-3 py-2.5 tabular-nums text-gray-300">{tx.date}</td>
+                    <td className="px-3 py-2.5 font-bold">{asset?.symbol ?? '—'}</td>
+                    <td className={`px-3 py-2.5 ${TYPE_CLASS[tx.type] ?? ''}`}>{TYPE_LABEL[tx.type] ?? tx.type}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
                       {tx.type === 'dividend' ? '—' : Number(tx.quantity).toLocaleString('tr-TR', { maximumFractionDigits: 6 })}
                     </td>
-                    <td className="p-3 text-right tabular-nums">
+                    <td className="px-3 py-2.5 text-right tabular-nums">
                       {Number(tx.price).toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
                       <span className="text-gray-500 ml-1">{cur === 'USD' ? '$' : '₺'}</span>
                     </td>
-                    <td className="p-3 text-right tabular-nums text-gray-300">
+                    <td className="px-3 py-2.5 text-right tabular-nums text-gray-300">
                       {total === null ? '—' : total.toLocaleString('tr-TR', { maximumFractionDigits: 0 })}
                     </td>
-                    <td className="p-3 text-gray-400 text-xs">
+                    <td className="px-3 py-2.5 text-gray-400 text-xs">
                       {normalizeBroker(tx.broker) || <span className="text-gray-600">—</span>}
                     </td>
-                    <td className="p-3">
+                    <td className="px-3 py-2.5">
                       <div className="flex gap-1 justify-end">
                         <button onClick={() => onEdit(tx)} title="Düzenle"
                           className="px-2 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600">Düzenle</button>
