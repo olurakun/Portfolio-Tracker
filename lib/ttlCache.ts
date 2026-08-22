@@ -14,7 +14,23 @@ type Entry<T> = { value: T; expiresAt: number };
 const store = new Map<string, Entry<unknown>>();
 const inflight = new Map<string, Promise<unknown>>();
 
-export async function cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<T> {
+/**
+ * `shouldCache`: yüklenen değer önbelleğe alınmaya değer mi? Varsayılan her
+ * zaman "evet" — bazı çağıranlar için başarısızlığı da (ör. çözülemeyen
+ * sembol) önbelleklemek doğru davranış.
+ *
+ * Ama BAZI çağıranlar için yanlış: `load()` hata FIRLATMADAN "veri yok"
+ * anlamına gelen bir değer (null gibi) dönebilir. Böyle bir değeri normal
+ * sonuç gibi önbelleğe almak, geçici bir ağ aksaklığını TTL süresince (kimi
+ * çağrıda 24 saate kadar) donduruyor demektir — kullanıcı gerçek kur yerine
+ * saatlerce sıfır görür. Bu, tam olarak yaşanan hataydı (lib/ttlCache.test.ts).
+ */
+export async function cached<T>(
+  key: string,
+  ttlMs: number,
+  load: () => Promise<T>,
+  shouldCache: (value: T) => boolean = () => true,
+): Promise<T> {
   const now = Date.now();
 
   const hit = store.get(key) as Entry<T> | undefined;
@@ -26,7 +42,7 @@ export async function cached<T>(key: string, ttlMs: number, load: () => Promise<
 
   const promise = load()
     .then(value => {
-      store.set(key, { value, expiresAt: Date.now() + ttlMs });
+      if (shouldCache(value)) store.set(key, { value, expiresAt: Date.now() + ttlMs });
       return value;
     })
     .finally(() => {

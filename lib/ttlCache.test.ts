@@ -62,4 +62,43 @@ describe('cached', () => {
     expect(await cached('k', 1000, load)).toBe('ok');
     expect(calls).toBe(2);
   });
+
+  // GERÇEKTE YAŞANAN HATA: load() hata FIRLATMADAN "veri yok" anlamına gelen
+  // bir değer (null) döndürdüğünde, bu değer normal sonuç gibi önbelleğe
+  // alınıyordu. Frankfurter'a giden geçici bir aksaklık böylece TTL boyunca
+  // (kimi çağrıda 24 saat) donuyor, USD kuru kullanıcıya sıfır olarak
+  // görünüyordu. shouldCache bu sınıf hatayı önlemek için var.
+  describe('shouldCache', () => {
+    it('shouldCache false dönerse başarısız sonucu önbelleğe almaz', async () => {
+      let calls = 0;
+      const load = async () => {
+        calls++;
+        return calls === 1 ? null : 48.066;
+      };
+      const first = await cached('k', 10_000, load, v => v !== null);
+      expect(first).toBeNull();
+
+      // TTL süresi bitmedi ama önbelleğe hiç yazılmadığı için hemen tekrar dener.
+      const second = await cached('k', 10_000, load, v => v !== null);
+      expect(second).toBe(48.066);
+      expect(calls).toBe(2);
+    });
+
+    it('shouldCache true dönen değeri normal önbellekler', async () => {
+      let calls = 0;
+      const load = async () => { calls++; return 48.066; };
+      await cached('k', 10_000, load, v => v !== null);
+      await cached('k', 10_000, load, v => v !== null);
+      expect(calls).toBe(1);
+    });
+
+    it('shouldCache verilmezse eski davranış korunur (her değer önbelleklenir)', async () => {
+      let calls = 0;
+      const load = async () => { calls++; return null; };
+      await cached('k', 10_000, load);
+      const second = await cached('k', 10_000, load);
+      expect(second).toBeNull();
+      expect(calls).toBe(1);
+    });
+  });
 });

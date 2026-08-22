@@ -120,13 +120,17 @@ async function fetchUsdTryRate(date: string | null): Promise<number | null> {
   }
 }
 
+// `shouldCache: rate => rate !== null` ŞART: aksi hâlde Frankfurter'a giden
+// geçici bir aksaklık "kur yok" sonucunu TTL boyunca (geçmişte 24 saate kadar)
+// dondurur ve her USD hesaplaması o süre boyunca sessizce 0'a düşer. Gerçekte
+// yaşandı — kullanıcı "USD kuru sıfır geldi" diye bildirdi.
 async function getUsdTryRate(): Promise<number | null> {
-  return cached('usdtry:current', RATE_TTL_MS, () => fetchUsdTryRate(null));
+  return cached('usdtry:current', RATE_TTL_MS, () => fetchUsdTryRate(null), rate => rate !== null);
 }
 
 async function getHistoricalUsdTryRate(date: string): Promise<number | null> {
   // Geçmiş kur değişmez, üstelik aynı tarih tüm varlıklar için soruluyor.
-  return cached(`usdtry:${date}`, HISTORICAL_TTL_MS, () => fetchUsdTryRate(date));
+  return cached(`usdtry:${date}`, HISTORICAL_TTL_MS, () => fetchUsdTryRate(date), rate => rate !== null);
 }
 
 // Herhangi bir para birimindeki tutarı hem TRY hem USD karşılığına çevirir.
