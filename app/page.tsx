@@ -59,6 +59,7 @@ function Home({ session }: { session: Session }) {
   };
   // İşlem girme modalı — portföy satırlarındaki Al/Sat butonlarıyla önceden doldurulmuş açılır.
   const [txModalOpen, setTxModalOpen] = useState(false);
+  const [copyingScenario, setCopyingScenario] = useState(false);
 
   const openTxModal = (assetId: string, kind: 'buy' | 'sell' | 'dividend') => {
     setEditingTx(null);
@@ -352,25 +353,37 @@ function Home({ session }: { session: Session }) {
   // sapabilir (hipotetik alım/satım ekleyip çıkarabilir). Senaryoda zaten
   // işlem varsa üstüne EKLEMEK yerine (çift sayıma yol açar) önce onlar
   // silinip taze bir kopya konuyor.
+  //
+  // copyingScenario kilidi ŞART: onaysız yolda (senaryo boşken) hızlı çift
+  // tıklama, ikinci çağrının `transactions` state'i ilk çağrının insert'i
+  // dönmeden HENÜZ eskiyken okumasına yol açıyordu — ikisi de senaryoyu
+  // "boş" görüp confirm() hiç tetiklenmeden aynı gerçek işlemleri iki kez
+  // ekliyordu (çift sayılan maliyet, gerçekte olmayan bir zarar).
   const copyRealToScenario = async () => {
-    const realTx = filterByPortfolio(transactions, REAL);
-    if (realTx.length === 0) { alert("Gerçek portföyünüzde kopyalanacak işlem yok."); return; }
+    if (copyingScenario) return;
+    setCopyingScenario(true);
+    try {
+      const realTx = filterByPortfolio(transactions, REAL);
+      if (realTx.length === 0) { alert("Gerçek portföyünüzde kopyalanacak işlem yok."); return; }
 
-    if (scopedTransactions.length > 0) {
-      const ok = confirm(
-        `"${activePortfolio}" senaryosundaki ${scopedTransactions.length} işlem silinip ` +
-        `gerçek portföyünüzün güncel hâliyle değiştirilecek.\n\nBu geri alınamaz. Devam edilsin mi?`
-      );
-      if (!ok) return;
-      const { error: delError } = await supabase.from("transactions")
-        .delete().in('id', scopedTransactions.map(t => t.id));
-      if (delError) { alert("Silinemedi: " + delError.message); return; }
+      if (scopedTransactions.length > 0) {
+        const ok = confirm(
+          `"${activePortfolio}" senaryosundaki ${scopedTransactions.length} işlem silinip ` +
+          `gerçek portföyünüzün güncel hâliyle değiştirilecek.\n\nBu geri alınamaz. Devam edilsin mi?`
+        );
+        if (!ok) return;
+        const { error: delError } = await supabase.from("transactions")
+          .delete().in('id', scopedTransactions.map(t => t.id));
+        if (delError) { alert("Silinemedi: " + delError.message); return; }
+      }
+
+      const rows = buildScenarioCopy(realTx, activePortfolio);
+      const { error } = await supabase.from("transactions").insert(rows);
+      if (error) { alert("Kopyalanamadı: " + error.message); return; }
+      await fetchData();
+    } finally {
+      setCopyingScenario(false);
     }
-
-    const rows = buildScenarioCopy(realTx, activePortfolio);
-    const { error } = await supabase.from("transactions").insert(rows);
-    if (error) { alert("Kopyalanamadı: " + error.message); return; }
-    fetchData();
   };
 
   // Belirli bir tarih aralığındaki portföy değer değişimini hesaplar:
@@ -825,9 +838,10 @@ function Home({ session }: { session: Session }) {
               </span>
               <button
                 onClick={copyRealToScenario}
-                className="px-2.5 py-1 rounded text-xs font-semibold bg-cyan-900/40 text-cyan-200 border border-cyan-700/60 hover:bg-cyan-900/70"
+                disabled={copyingScenario}
+                className="px-2.5 py-1 rounded text-xs font-semibold bg-cyan-900/40 text-cyan-200 border border-cyan-700/60 hover:bg-cyan-900/70 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Gerçek portföyü kopyala
+                {copyingScenario ? 'Kopyalanıyor…' : 'Gerçek portföyü kopyala'}
               </button>
             </div>
           )}
