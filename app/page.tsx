@@ -680,7 +680,7 @@ function Home({ session }: { session: Session }) {
     const unrealizedPL = (totalQty * currentPrice) - totalCost;
     const unrealizedPLUSD = (totalQty * currentPriceUSD) - totalCostUSD;
     return {
-      ...asset, totalQty, avgCost, currentPrice, currentPriceUSD,
+      ...asset, totalQty, avgCost, currentPrice, currentPriceUSD, totalCost,
       value: totalQty * currentPrice,
       valueUSD: totalQty * currentPriceUSD,
       unrealizedPL, realizedPL, unrealizedPLUSD, realizedPLUSD,

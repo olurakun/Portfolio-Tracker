@@ -9,6 +9,7 @@ export type PortfolioRow = {
   totalQty: number;
   currentPrice: number;
   currentPriceUSD: number;
+  totalCost: number;
   value: number;
   valueUSD: number;
   unrealizedPL: number;
@@ -33,6 +34,23 @@ const tl = (n: number, digits = 2) =>
 const usd = (n: number) =>
   `${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 const plColor = (n: number) => (n >= 0 ? 'text-green-400' : 'text-red-400');
+
+// Maliyete göre getiri yüzdesi. SummaryBar'daki genel toplamla aynı
+// mantık (returnPct = K/Z / maliyet) — burada pozisyon bazında.
+// Maliyet 0 veya negatifse (ör. tamamı temettüyle karşılanmış pozisyon)
+// yüzde anlamsızlaşır, null dönüp hiç basılmaz.
+function costReturnPct(unrealizedPL: number, totalCost: number): number | null {
+  return totalCost > 0 ? (unrealizedPL / totalCost) * 100 : null;
+}
+
+function ReturnPct({ pct }: { pct: number | null }) {
+  if (pct === null) return null;
+  return (
+    <span className={`text-[11px] tabular-nums ${plColor(pct)}`}>
+      {pct >= 0 ? '+' : ''}%{Math.abs(pct).toLocaleString('tr-TR', { maximumFractionDigits: 1 })}
+    </span>
+  );
+}
 
 function TypeBadge({ type }: { type: string }) {
   const badge = TYPE_BADGE[type];
@@ -126,6 +144,9 @@ function PositionCard({
         <div className="text-right shrink-0">
           <div className={`text-sm font-semibold tabular-nums whitespace-nowrap ${plColor(item.unrealizedPL)}`}>
             {item.unrealizedPL >= 0 ? '+' : ''}{tl(item.unrealizedPL)}
+          </div>
+          <div className="whitespace-nowrap">
+            <ReturnPct pct={costReturnPct(item.unrealizedPL, item.totalCost)} />
           </div>
           {item.realizedPL !== 0 && (
             <div className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap">
@@ -356,7 +377,10 @@ export default function PortfolioTable({
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className={`font-bold tabular-nums ${plColor(item.unrealizedPL)}`}>{tl(item.unrealizedPL)}</div>
-                    <div className="text-[11px] text-gray-500 tabular-nums">{usd(item.unrealizedPLUSD)}</div>
+                    <div className="text-[11px] text-gray-500 tabular-nums">
+                      {usd(item.unrealizedPLUSD)}
+                      {' '}<ReturnPct pct={costReturnPct(item.unrealizedPL, item.totalCost)} />
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className={`font-bold tabular-nums ${plColor(item.realizedPL)}`}>{tl(item.realizedPL)}</div>

@@ -8,22 +8,22 @@ import type { ParsedRow } from "../../lib/importParse";
 
 export const positions: PortfolioRow[] = [
   { id: '1', symbol: 'THYAO', type: 'stock', totalQty: 1250, currentPrice: 305.25, currentPriceUSD: 8.94,
-    value: 381562.5, valueUSD: 11175, unrealizedPL: 42310.75, realizedPL: 0, unrealizedPLUSD: 1240.2, realizedPLUSD: 0 },
+    totalCost: 339251.75, value: 381562.5, valueUSD: 11175, unrealizedPL: 42310.75, realizedPL: 0, unrealizedPLUSD: 1240.2, realizedPLUSD: 0 },
   { id: '2', symbol: 'AAPL', type: 'stock', totalQty: 40, currentPrice: 10122.4, currentPriceUSD: 296.42,
-    value: 404896, valueUSD: 11856.8, unrealizedPL: -18420.6, realizedPL: 5210.4, unrealizedPLUSD: -540.1, realizedPLUSD: 152.6 },
+    totalCost: 423316.6, value: 404896, valueUSD: 11856.8, unrealizedPL: -18420.6, realizedPL: 5210.4, unrealizedPLUSD: -540.1, realizedPLUSD: 152.6 },
   { id: '3', symbol: 'TLY', type: 'fund', totalQty: 85.234567, currentPrice: 7369.52, currentPriceUSD: 215.8,
-    value: 628050.11, valueUSD: 18393.5, unrealizedPL: 96204.02, realizedPL: 0, unrealizedPLUSD: 2818, realizedPLUSD: 0 },
+    totalCost: 531846.09, value: 628050.11, valueUSD: 18393.5, unrealizedPL: 96204.02, realizedPL: 0, unrealizedPLUSD: 2818, realizedPLUSD: 0 },
   { id: '4', symbol: 'XAU', type: 'metal', totalQty: 320, currentPrice: 6832.11, currentPriceUSD: 200.08,
-    value: 2186275.2, valueUSD: 64025.6, unrealizedPL: 318902.4, realizedPL: 12055, unrealizedPLUSD: 9340.3, realizedPLUSD: 353 },
+    totalCost: 1867372.8, value: 2186275.2, valueUSD: 64025.6, unrealizedPL: 318902.4, realizedPL: 12055, unrealizedPLUSD: 9340.3, realizedPLUSD: 353 },
   { id: '5', symbol: 'USD', type: 'currency', totalQty: 5000, currentPrice: 34.14, currentPriceUSD: 1,
-    value: 170700, valueUSD: 5000, unrealizedPL: 8420, realizedPL: 0, unrealizedPLUSD: 0, realizedPLUSD: 0 },
+    totalCost: 162280, value: 170700, valueUSD: 5000, unrealizedPL: 8420, realizedPL: 0, unrealizedPLUSD: 0, realizedPLUSD: 0 },
   { id: '7', symbol: 'BTC', type: 'crypto', totalQty: 0.15, currentPrice: 3664647.01, currentPriceUSD: 76241.98,
-    value: 549697.05, valueUSD: 11436.3, unrealizedPL: 61200.4, realizedPL: 0, unrealizedPLUSD: 1273.5, realizedPLUSD: 0 },
+    totalCost: 488496.65, value: 549697.05, valueUSD: 11436.3, unrealizedPL: 61200.4, realizedPL: 0, unrealizedPLUSD: 1273.5, realizedPLUSD: 0 },
 ];
 
 export const closedPositions: PortfolioRow[] = [
   { id: '6', symbol: 'ASELS', type: 'stock', totalQty: 0, currentPrice: 212.8, currentPriceUSD: 6.23,
-    value: 0, valueUSD: 0, unrealizedPL: 0, realizedPL: -3204.5, unrealizedPLUSD: 0, realizedPLUSD: -93.8 },
+    totalCost: 0, value: 0, valueUSD: 0, unrealizedPL: 0, realizedPL: -3204.5, unrealizedPLUSD: 0, realizedPLUSD: -93.8 },
 ];
 
 export const totals = { value: 3771483.81, valueUSD: 110450.9, unrealizedPL: 447416.57, realizedPL: 14060.9 };

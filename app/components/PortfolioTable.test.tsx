@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 const row = (o: Partial<PortfolioRow> = {}): PortfolioRow => ({
   id: '1', symbol: 'THYAO', type: 'stock', totalQty: 100, currentPrice: 305.25, currentPriceUSD: 8.94,
-  value: 30525, valueUSD: 894, unrealizedPL: 4231, realizedPL: 0, unrealizedPLUSD: 124, realizedPLUSD: 0, ...o,
+  totalCost: 26294, value: 30525, valueUSD: 894, unrealizedPL: 4231, realizedPL: 0, unrealizedPLUSD: 124, realizedPLUSD: 0, ...o,
 });
 
 const defaults = {
@@ -169,5 +169,34 @@ describe('PortfolioTable', () => {
     const qty = within(container).getByText('100');
     expect(qty.className).toContain('text-right');
     expect(qty.className).toContain('tabular-nums');
+  });
+
+  // Kullanıcı isteği: tabloda mutlak K/Z vardı ama maliyete göre kâr YÜZDESİ
+  // yoktu — SummaryBar'daki "maliyete göre +%X" ile aynı anlam, pozisyon
+  // bazında. totalCost 26294, unrealizedPL 4231 -> %16,1.
+  it('anlık K/Z yanında maliyete göre kâr yüzdesi gösterir (masaüstü)', () => {
+    const { container } = setup();
+    expect(desktop(container).getByText('+%16,1')).toBeTruthy();
+  });
+
+  it('anlık K/Z yanında maliyete göre kâr yüzdesi gösterir (mobil)', () => {
+    const { container } = setup();
+    expect(mobile(container).getByText('+%16,1')).toBeTruthy();
+  });
+
+  // SummaryBar'daki kuralla aynı: kayıpta eksi işareti YOK, kayıp yalnızca
+  // kırmızı renkle anlatılıyor (+%16,1 kazanç / %16,1 kayıp).
+  it('zarardaki pozisyonda yüzde kırmızı gösterilir', () => {
+    const { container } = setup({ openPositions: [row({ totalCost: 26294, unrealizedPL: -4231 })] });
+    const pct = desktop(container).getByText('%16,1');
+    expect(pct.className).toContain('text-red-400');
+  });
+
+  // Maliyet 0 ya da negatifse (ör. tamamı temettüyle karşılanmış pozisyon)
+  // yüzde anlamsız — hiç basılmamalı, "%Infinity" ya da yanıltıcı bir
+  // sayı görünmemeli.
+  it('maliyet 0 ise yüzde hiç basılmaz', () => {
+    const { container } = setup({ openPositions: [row({ totalCost: 0, unrealizedPL: 500 })] });
+    expect(desktop(container).queryByText(/^[+-]%/)).toBeNull();
   });
 });
