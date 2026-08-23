@@ -38,6 +38,9 @@ export default function PortfolioChart({
   transactions: any[];
   fxRates: Record<string, number>;
 }) {
+  // Varsayılan KAPALI: grafik ekranın büyük kısmını kaplayıp asıl veri olan
+  // portföy tablosunu ekranın altına itiyordu. Kapalıyken ince bir şerit.
+  const [open, setOpen] = useState(false);
   const [histories, setHistories] = useState<Record<string, Series>>({});
   const [loading, setLoading] = useState(false);
   const [rangeKey, setRangeKey] = useState('3m');
@@ -45,6 +48,9 @@ export default function PortfolioChart({
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [showTable, setShowTable] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
+  // Hangi veri kümesinin çekildiğini hatırlar: aç/kapa döngüsünde aynı seriyi
+  // tekrar tekrar çekmeyi engeller (varlık listesi değişirse yeniden çekilir).
+  const fetchedKeyRef = useRef<string>('');
 
   const firstTxDate = useMemo(
     () => transactions.map(t => t.date).filter(Boolean).sort()[0] ?? '',
@@ -55,8 +61,19 @@ export default function PortfolioChart({
 
   // Tüm aralık bir kez çekilir, ön tanımlı aralıklar istemcide dilimlenir —
   // aralık değiştirmek yeni istek gerektirmez.
+  //
+  // AÇILMADAN ÇEKİLMEZ: grafik varsayılan kapalı ve kullanıcıların çoğu
+  // portföy tablosuna bakıp çıkıyor. Kapalıyken çekmek her sayfa açılışında
+  // boşuna 82 sembollük geçmiş isteği demek — bunun 54'ü TEFAS ve TEFAS'ın
+  // resmî API'si yok (engellenme riski, bkz. app/api/history/route.ts).
   useEffect(() => {
-    if (!firstTxDate || assets.length === 0) return;
+    if (!open || !firstTxDate || assets.length === 0) return;
+    // Aç/kapa döngüsü aynı seriyi yeniden çekmemeli; yalnızca veri kümesi
+    // (varlıklar / ilk işlem tarihi / gün) değişince yeniden çekilir.
+    const fetchKey = `${firstTxDate}|${assetKey}|${today}`;
+    if (fetchedKeyRef.current === fetchKey) return;
+    fetchedKeyRef.current = fetchKey;
+
     let cancelled = false;
     setLoading(true);
     const spec = assets.map(a => `${a.symbol}:${a.type}`).join(',');
@@ -71,9 +88,15 @@ export default function PortfolioChart({
         setHistories(map);
         setLoading(false);
       })
-      .catch(() => { if (!cancelled) { setHistories({}); setLoading(false); } });
+      .catch(() => {
+        if (cancelled) return;
+        // Başarısızlık hatırlanmamalı, yoksa tekrar açmak yeniden denemez.
+        fetchedKeyRef.current = '';
+        setHistories({});
+        setLoading(false);
+      });
     return () => { cancelled = true; };
-  }, [firstTxDate, assetKey, today, assets]);
+  }, [open, firstTxDate, assetKey, today, assets]);
 
   const points: Point[] = useMemo(() => {
     if (!firstTxDate || Object.keys(histories).length === 0) return [];
@@ -206,10 +229,35 @@ export default function PortfolioChart({
 
   const hovered = hoverIdx !== null ? points[hoverIdx] : null;
 
+  // KAPALI: tek satırlık şerit. Toplam değer zaten üstteki SummaryBar'da
+  // olduğu için burada tekrar edilmiyor — şerit yalnızca "grafik burada" der.
+  if (!open) {
+    return (
+      <div className="mb-4">
+        <button
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-700 bg-gray-800/60 text-sm text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          <span className="text-xs">▸</span>
+          <span className="font-semibold">Portföy Değeri</span>
+          <span className="text-xs text-gray-600 ml-auto">grafiği aç</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-8">
       <div className="p-4 border-b border-gray-700 flex flex-wrap items-center gap-3">
-        <h2 className="font-bold text-lg">Portföy Değeri</h2>
+        <button
+          onClick={() => setOpen(false)}
+          aria-expanded
+          className="flex items-center gap-2 font-bold text-lg hover:text-gray-300 transition-colors"
+        >
+          <span className="text-xs text-gray-500">▾</span>
+          Portföy Değeri
+        </button>
 
         <div className="flex gap-1 ml-auto">
           {RANGES.map(r => (

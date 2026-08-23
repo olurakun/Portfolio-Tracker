@@ -7,6 +7,7 @@ import ApiKeySettings from "../components/ApiKeySettings";
 import AssetPicker, { type AssetChoice } from "../components/AssetPicker";
 import BrokerBar from "../components/BrokerBar";
 import PortfolioSwitch from "../components/PortfolioSwitch";
+import PortfolioChart from "../components/PortfolioChart";
 import DataSources from "../components/DataSources";
 import SummaryBar from "../components/SummaryBar";
 import PortfolioToolbar from "../components/PortfolioToolbar";
@@ -115,9 +116,10 @@ function FullPageMock() {
         <BrokerBar totals={brokerTotals} selected={broker} onSelect={setBroker}
           grandTotal={brokerTotals.reduce((a, b) => a + b.value, 0)} />
 
-        <div className="bg-gray-800 rounded-xl border border-gray-700 mb-8 flex items-center justify-center text-gray-600 text-sm h-64">
-          [ Portföy değeri grafiği — canlı veri çektiği için burada yer tutucu ]
-        </div>
+        {/* Gerçek bileşen. Varsayılan KAPALI olduğu için veri çekmiyor —
+            şerit hâlini burada görebiliyoruz. Açılırsa /api/history'ye
+            gerçek istek atar (oturum gerektirmeyen bir uç). */}
+        <PortfolioChart assets={fx.chartAssets} transactions={fx.chartTransactions} fxRates={fx.chartFxRates} />
 
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <button className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-600 transition-colors font-semibold">+ Yeni varlık</button>

@@ -56,3 +56,18 @@ export const brokerTotals = [
   { broker: 'Yapı Kredi', value: 2186275.2 },
   { broker: '', value: 170700 },
 ];
+
+// Portföy değeri grafiği için. Grafik varsayılan KAPALI geldiği ve açılana
+// kadar veri çekmediği için bunlar yalnızca şerit hâlini çizmeye yetiyor;
+// açılırsa /api/history'ye gerçek istek gider.
+export const chartAssets = [
+  { id: '1', symbol: 'THYAO', type: 'stock' },
+  { id: '4', symbol: 'XAU', type: 'metal' },
+];
+
+export const chartTransactions = [
+  { asset_id: '1', type: 'buy', quantity: 1250, price: 268, date: '2026-05-04', currency: 'TRY' },
+  { asset_id: '4', type: 'buy', quantity: 320, price: 5840, date: '2026-05-20', currency: 'TRY' },
+];
+
+export const chartFxRates = { '2026-05-04': 39.8, '2026-06-01': 40.2, '2026-08-20': 41.1 };
