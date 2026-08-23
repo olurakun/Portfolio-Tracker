@@ -10,6 +10,7 @@ import { fxRateUrl, readRate } from "./fx";
 import { cached } from "./ttlCache";
 import { tefasLatestPrice, tefasPriceOn } from "./tefas";
 import { twelveDataQuote, twelveDataHistoricalQuote, twelveDataConfigured } from "./twelvedata";
+import { coinGeckoQuote, coinGeckoHistoricalQuote } from "./coingecko";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -223,10 +224,12 @@ export async function getCurrentPrice(symbol: string, type: string | null): Prom
     return { price: priceTRY ?? 0, priceUSD };
   }
 
-  // 3. KRİPTO — Yahoo "BTC-USD" gibi USD paritesiyle fiyatlıyor, TL'ye kur
-  // üzerinden çeviriyoruz. Kalıcı kaynak değil: Yahoo'nun ticari lisansı yok,
-  // bkz. lib/coingecko.ts'teki not — anahtar temin edilince oraya geçilecek.
+  // 3. KRİPTO — CoinGecko birincil (TL fiyatı doğrudan geliyor, kur çevrimi
+  // gerekmiyor), bulunamazsa Yahoo'nun "BTC-USD" paritesine düşülüyor
+  // (Yahoo'nun burada bilinen sorunu: resmî API'si ve ticari lisansı yok).
   if (type === "crypto") {
+    const cg = await coinGeckoQuote(symbol);
+    if (cg !== null) return { price: cg.priceTRY, priceUSD: cg.priceUSD };
     const quote = await fetchYahooPrice(`${symbol}-USD`);
     if (quote === null) return { price: 0, priceUSD: 0 };
     const priceTRY = usdTryRate !== null ? quote * usdTryRate : null;
@@ -274,8 +277,12 @@ export async function getHistoricalPrice(symbol: string, type: string | null, da
     return { price: priceTRY ?? 0, priceUSD };
   }
 
-  // 3. KRİPTO
+  // 3. KRİPTO — CoinGecko birincil, ücretsiz katmanda yalnızca SON 365 GÜN
+  // (daha eskisi null döner, ölçüldü — bkz. lib/coingecko.ts). O aralığın
+  // dışında ya da coin bulunamazsa Yahoo'nun geçmiş verisine düşülüyor.
   if (type === "crypto") {
+    const cg = await coinGeckoHistoricalQuote(symbol, date);
+    if (cg !== null) return { price: cg.priceTRY, priceUSD: cg.priceUSD };
     const quote = await fetchYahooHistoricalQuote(`${symbol}-USD`, date);
     if (quote === null) return { price: 0, priceUSD: 0 };
     const priceTRY = usdTryRate !== null ? quote.price * usdTryRate : null;

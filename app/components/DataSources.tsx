@@ -35,6 +35,15 @@ export default function DataSources() {
         className="hover:text-gray-400 underline decoration-gray-700"
       >Yahoo Finance</a>
       <span className="text-gray-700"> (hisse ve maden)</span>
+      {' · '}
+      {/* CoinGecko atfı ZORUNLU (api_terms) — kaldırılmamalı. */}
+      <a
+        href="https://www.coingecko.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="hover:text-gray-400 underline decoration-gray-700"
+      >CoinGecko</a>
+      <span className="text-gray-700"> (kripto)</span>
     </footer>
   );
 }
