@@ -58,3 +58,38 @@ export function scenariosOf(rows: HasPortfolio[]): string[] {
 export function portfolioLabel(portfolio: string): string {
   return normalizePortfolio(portfolio) || REAL_LABEL;
 }
+
+type TxLike = {
+  asset_id: string | number;
+  type: string;
+  quantity: number | string;
+  price: number | string;
+  date: string;
+  currency?: string | null;
+  broker?: string | null;
+  portfolio?: string | null;
+};
+
+/**
+ * Gerçek portföyün bir senaryoya kopyalanacak hâli — id/user_id hariç, DB
+ * bunları kendisi atıyor. Girdi gerçek olmayan bir satır içerse (çağıran
+ * yanlışlıkla filtrelenmemiş tüm işlemleri verirse) o satır SESSİZCE
+ * ATLANIYOR: bu fonksiyonun tek görevi gerçek portföyü kopyalamak, sanal
+ * bir senaryonun başka bir senaryoya sızmasına asla izin vermemeli — bkz.
+ * dosya başındaki "tek gerçek risk" notu.
+ */
+export function buildScenarioCopy(realTransactions: TxLike[], targetPortfolio: string) {
+  const portfolio = normalizePortfolio(targetPortfolio);
+  return realTransactions
+    .filter(tx => isReal(tx.portfolio))
+    .map(tx => ({
+      asset_id: tx.asset_id,
+      type: tx.type,
+      quantity: tx.quantity,
+      price: tx.price,
+      date: tx.date,
+      currency: tx.currency ?? null,
+      broker: tx.broker ?? null,
+      portfolio,
+    }));
+}

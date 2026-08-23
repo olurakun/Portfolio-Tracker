@@ -6,7 +6,7 @@ import PortfolioChart from "./components/PortfolioChart";
 import { computePosition, convertTxPrice, heldQuantity, findNegativePositions } from "../lib/portfolio";
 import { findDuplicateRows } from "../lib/importParse";
 import { brokersOf, filterByBroker, normalizeBroker } from "../lib/brokers";
-import { REAL, DEFAULT_SCENARIO, filterByPortfolio, normalizePortfolio, scenariosOf } from "../lib/portfolios";
+import { REAL, DEFAULT_SCENARIO, filterByPortfolio, normalizePortfolio, scenariosOf, buildScenarioCopy } from "../lib/portfolios";
 import AuthGate from "./components/AuthGate";
 import Comparison from "./components/Comparison";
 import TransactionsTab from "./components/TransactionsTab";
@@ -344,6 +344,32 @@ function Home({ session }: { session: Session }) {
     setSymbol(""); setName("");
     setTxNewAsset(false); setEditingTx(null);
     setTxModalOpen(false);
+    fetchData();
+  };
+
+  // Senaryoyu "gerçek portföyüm neyse o" durumundan başlatmak için: her
+  // işlemi elle tekrar girmek yerine tek tıkla kopyalar, kullanıcı oradan
+  // sapabilir (hipotetik alım/satım ekleyip çıkarabilir). Senaryoda zaten
+  // işlem varsa üstüne EKLEMEK yerine (çift sayıma yol açar) önce onlar
+  // silinip taze bir kopya konuyor.
+  const copyRealToScenario = async () => {
+    const realTx = filterByPortfolio(transactions, REAL);
+    if (realTx.length === 0) { alert("Gerçek portföyünüzde kopyalanacak işlem yok."); return; }
+
+    if (scopedTransactions.length > 0) {
+      const ok = confirm(
+        `"${activePortfolio}" senaryosundaki ${scopedTransactions.length} işlem silinip ` +
+        `gerçek portföyünüzün güncel hâliyle değiştirilecek.\n\nBu geri alınamaz. Devam edilsin mi?`
+      );
+      if (!ok) return;
+      const { error: delError } = await supabase.from("transactions")
+        .delete().in('id', scopedTransactions.map(t => t.id));
+      if (delError) { alert("Silinemedi: " + delError.message); return; }
+    }
+
+    const rows = buildScenarioCopy(realTx, activePortfolio);
+    const { error } = await supabase.from("transactions").insert(rows);
+    if (error) { alert("Kopyalanamadı: " + error.message); return; }
     fetchData();
   };
 
@@ -793,9 +819,17 @@ function Home({ session }: { session: Session }) {
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <PortfolioSwitch scenarios={scenarioList} active={activePortfolio} onChange={setActivePortfolio} />
           {isVirtual && (
-            <span className="text-xs text-cyan-300/90">
-              Sanal senaryo — buradaki işlemler gerçek portföyüne dahil edilmez.
-            </span>
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-cyan-300/90">
+                Sanal senaryo — buradaki işlemler gerçek portföyüne dahil edilmez.
+              </span>
+              <button
+                onClick={copyRealToScenario}
+                className="px-2.5 py-1 rounded text-xs font-semibold bg-cyan-900/40 text-cyan-200 border border-cyan-700/60 hover:bg-cyan-900/70"
+              >
+                Gerçek portföyü kopyala
+              </button>
+            </div>
           )}
         </div>
 

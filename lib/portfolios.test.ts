@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   REAL, DEFAULT_SCENARIO, normalizePortfolio, portfolioKey, isReal,
-  filterByPortfolio, scenariosOf, portfolioLabel,
+  filterByPortfolio, scenariosOf, portfolioLabel, buildScenarioCopy,
 } from './portfolios';
 
 const tx = (portfolio?: string | null) => ({ portfolio });
@@ -81,5 +81,46 @@ describe('portfolioLabel', () => {
   it('gerçek portföye okunur ad verir', () => {
     expect(portfolioLabel(REAL)).toBe('Gerçek');
     expect(portfolioLabel(DEFAULT_SCENARIO)).toBe('Sanal');
+  });
+});
+
+describe('buildScenarioCopy', () => {
+  const realTx = (o: Partial<{
+    asset_id: string; type: string; quantity: number; price: number;
+    date: string; currency: string | null; broker: string | null; portfolio: string | null;
+  }> = {}) => ({
+    asset_id: '1', type: 'buy', quantity: 10, price: 305.25,
+    date: '2026-06-15', currency: 'TRY', broker: 'Midas', portfolio: null, ...o,
+  });
+
+  it('gerçek işlemleri hedef senaryo adıyla etiketleyip kopyalar', () => {
+    const rows = buildScenarioCopy([realTx()], 'Sanal');
+    expect(rows).toEqual([{
+      asset_id: '1', type: 'buy', quantity: 10, price: 305.25,
+      date: '2026-06-15', currency: 'TRY', broker: 'Midas', portfolio: 'Sanal',
+    }]);
+  });
+
+  it('id ve user_id gibi DB alanlarını taşımaz — girdide olsa bile çıktıda yok', () => {
+    const rows = buildScenarioCopy([{ ...realTx(), id: 99, user_id: 'abc' } as never], 'Sanal');
+    expect(rows[0]).not.toHaveProperty('id');
+    expect(rows[0]).not.toHaveProperty('user_id');
+  });
+
+  // Tek gerçek risk (dosya başındaki not): sanal bir işlem başka bir
+  // senaryoya sızmamalı. Çağıran yanlışlıkla filtrelenmemiş tüm işlemleri
+  // verse bile bu fonksiyon kendini korumalı.
+  it('girdideki sanal işlemleri sessizce atlar, kopyalamaz', () => {
+    const rows = buildScenarioCopy([realTx(), realTx({ portfolio: 'Eski senaryo' })], 'Sanal');
+    expect(rows).toHaveLength(1);
+  });
+
+  it('hedef portföy adını normalize eder (baştaki/sondaki boşluk)', () => {
+    const rows = buildScenarioCopy([realTx()], '  Sanal  ');
+    expect(rows[0].portfolio).toBe('Sanal');
+  });
+
+  it('boş girdide boş dizi döner', () => {
+    expect(buildScenarioCopy([], 'Sanal')).toEqual([]);
   });
 });

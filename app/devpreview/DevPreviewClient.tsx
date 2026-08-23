@@ -82,6 +82,19 @@ function FullPageMock() {
 
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <PortfolioSwitch scenarios={['Sanal']} active={portfolio} onChange={setPortfolio} />
+          {portfolio !== '' && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs text-cyan-300/90">
+                Sanal senaryo — buradaki işlemler gerçek portföyüne dahil edilmez.
+              </span>
+              <button
+                onClick={() => alert('Devpreview: gerçek Supabase çağrısı yapılmaz.')}
+                className="px-2.5 py-1 rounded text-xs font-semibold bg-cyan-900/40 text-cyan-200 border border-cyan-700/60 hover:bg-cyan-900/70"
+              >
+                Gerçek portföyü kopyala
+              </button>
+            </div>
+          )}
         </div>
 
         <nav className="flex gap-1 border-b border-gray-700 mb-6">
