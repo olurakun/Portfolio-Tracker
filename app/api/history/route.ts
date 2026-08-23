@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fxSeriesUrl } from "../../../lib/fx";
 import { readCache, writeCache, purgeCache, hasRestatement } from "../../../lib/priceCache";
 import { tefasSeries as tefasFetch, periodForRange } from "../../../lib/tefas";
+import { coinGeckoRangeSeries } from "../../../lib/coingecko";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -86,6 +87,20 @@ async function seriesFor(symbolRaw: string, type: string | null, start: string, 
       return s2;
     }
     if (type === "fund") return await tefasFetch(symbol, periodForRange(start));
+
+    // KRİPTO — bu dal HİÇ YOKTU: "ETH" gibi semboller sessizce aşağıdaki
+    // hisse yoluna düşüp Yahoo'da "ETH" TİCKER'ı olarak aranıyordu — yani
+    // Ethereum'un fiyatı değil, Yahoo'da o sembolle eşleşen BAŞKA BİR
+    // enstrümanın (bir hisse senedi) fiyat serisi geliyordu. Tabloyla
+    // (/api/price, doğru: "ETH-USD" paritesi) grafiğin (/api/history)
+    // birbirini tutmaması buradan kaynaklanıyordu. CoinGecko birincil,
+    // ücretsiz katmanın 365 günlük sınırı ya da coin bulunamazsa Yahoo'nun
+    // DOĞRU "ETH-USD" paritesine düşülüyor — bare sembole değil.
+    if (type === "crypto") {
+      const cg = await coinGeckoRangeSeries(symbol, start, end);
+      if (cg) return cg;
+      return await yahooSeries(`${symbol}-USD`, start, end);
+    }
 
     let s2 = await yahooSeries(symbol, start, end);
     if ((!s2 || Object.keys(s2.prices).length === 0) && !symbol.includes(".")) {

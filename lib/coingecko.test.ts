@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { coinId, toCoinGeckoDate, coinGeckoQuote, coinGeckoHistoricalQuote } from './coingecko';
+import { coinId, toCoinGeckoDate, coinGeckoQuote, coinGeckoHistoricalQuote, coinGeckoRangeSeries } from './coingecko';
 
 describe('coinId', () => {
   it('bilinen sembolleri coin id\'ye çevirir', () => {
@@ -101,5 +101,58 @@ describe('coinGeckoQuote / coinGeckoHistoricalQuote', () => {
     global.fetch = fetchSpy as unknown as typeof fetch;
     expect(await coinGeckoQuote('NOTACOIN')).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// app/api/history/route.ts'teki "ETH sessizce hisse yoluna düşüp Yahoo'da
+// yanlış bir enstrümanın verisini çekiyordu" hatasını düzelten fonksiyon —
+// bkz. o dosyadaki crypto dalının yorumu.
+describe('coinGeckoRangeSeries', () => {
+  const savedFetch = global.fetch;
+  afterEach(() => { global.fetch = savedFetch; });
+
+  function mockFetch(response: unknown) {
+    global.fetch = vi.fn(async () => ({ json: async () => response } as Response)) as typeof fetch;
+  }
+
+  it('market_chart/range yanıtından günlük seri kurar', async () => {
+    mockFetch({ prices: [
+      [1780358400000, 92040.9], // 2026-06-02
+      [1780444800000, 85730.8], // 2026-06-03
+    ] });
+    const series = await coinGeckoRangeSeries('ETH', '2026-06-01', '2026-06-10');
+    expect(series).toEqual({ currency: 'TRY', prices: { '2026-06-02': 92040.9, '2026-06-03': 85730.8 } });
+  });
+
+  // CoinGecko kısa aralıklarda saatlik nokta döndürüyor (ölçüldü: 9 gün için
+  // 217 nokta) — aynı güne ait birden fazla nokta gelirse EN SON (en büyük
+  // ts) değer kalmalı, sıraya güvenilmeden.
+  it('aynı güne ait çoklu noktada en son (en büyük ts) değeri tutar', async () => {
+    const day = new Date('2026-06-02T00:00:00Z').getTime();
+    mockFetch({ prices: [
+      [day + 3 * 3600_000, 100], // 03:00, ilk gelen ama daha erken saat
+      [day + 20 * 3600_000, 105], // 20:00, günün son değeri
+      [day + 10 * 3600_000, 102], // 10:00, ortada — göz ardı edilmeli
+    ] });
+    const series = await coinGeckoRangeSeries('ETH', '2026-06-01', '2026-06-10');
+    expect(series?.prices['2026-06-02']).toBe(105);
+  });
+
+  it('bilinmeyen coin için API\'ye hiç gitmez, null döner', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    expect(await coinGeckoRangeSeries('NOTACOIN', '2026-06-01', '2026-06-10')).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('boş/hatalı yanıtta null döner (çağıran Yahoo\'ya düşer)', async () => {
+    mockFetch({ error: { status: { error_code: 10012 } } });
+    expect(await coinGeckoRangeSeries('BTC', '2020-01-01', '2020-01-10')).toBeNull();
+  });
+
+  it('0 veya negatif fiyatlı noktaları atlar', async () => {
+    mockFetch({ prices: [[1780358400000, 0], [1780444800000, -5], [1780531200000, 90000]] });
+    const series = await coinGeckoRangeSeries('ETH', '2026-06-01', '2026-06-10');
+    expect(Object.keys(series?.prices ?? {})).toEqual(['2026-06-04']);
   });
 });

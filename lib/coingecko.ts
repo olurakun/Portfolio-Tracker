@@ -104,6 +104,47 @@ export async function coinGeckoQuote(symbol: string): Promise<CoinGeckoQuote | n
   );
 }
 
+export type PriceSeries = { currency: 'TRY'; prices: Record<string, number> };
+
+function readRangeSeries(payload: unknown): PriceSeries | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const points = (payload as Record<string, unknown>).prices;
+  if (!Array.isArray(points) || points.length === 0) return null;
+  // CoinGecko kısa aralıklarda saatlik nokta döndürüyor (ölçüldü: 9 gün için
+  // 217 nokta); günün EN SON değeri tutulur, sırayla gelmesine güvenilmiyor —
+  // her nokta için en yüksek ts görülürse üzerine yazılıyor.
+  const latestTsByDay = new Map<string, number>();
+  const prices: Record<string, number> = {};
+  for (const point of points) {
+    if (!Array.isArray(point) || point.length < 2) continue;
+    const [ts, price] = point;
+    if (typeof ts !== 'number' || typeof price !== 'number' || price <= 0) continue;
+    const day = new Date(ts).toISOString().slice(0, 10);
+    const prevTs = latestTsByDay.get(day);
+    if (prevTs === undefined || ts > prevTs) {
+      latestTsByDay.set(day, ts);
+      prices[day] = price;
+    }
+  }
+  return Object.keys(prices).length > 0 ? { currency: 'TRY', prices } : null;
+}
+
+/**
+ * `start`–`end` (YYYY-MM-DD) aralığındaki TÜM günlük fiyat serisi TEK
+ * istekte — app/api/history/route.ts'teki yahooSeries/frankfurterSeries ile
+ * aynı sözleşme (kasıtlı: kendi TTL önbelleği YOK, o dosyanın dış
+ * lib/priceCache.ts katmanına bindiriliyor, çifte önbellek olmasın).
+ * Ücretsiz katmanda son 365 günle sınırlı — daha eskisi `null` döner.
+ */
+export async function coinGeckoRangeSeries(symbol: string, start: string, end: string): Promise<PriceSeries | null> {
+  const id = coinId(symbol);
+  if (id === null) return null;
+  const from = Math.floor(new Date(`${start}T00:00:00Z`).getTime() / 1000);
+  const to = Math.floor(new Date(`${end}T23:59:59Z`).getTime() / 1000);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return readRangeSeries(await request(`coins/${id}/market_chart/range?vs_currency=try&from=${from}&to=${to}`));
+}
+
 /**
  * `date` (YYYY-MM-DD) tarihindeki fiyat. Ücretsiz katmanda son 365 günle
  * sınırlı — daha eskisi ya da başka bir hata `null` döner, çağıran Yahoo'ya
