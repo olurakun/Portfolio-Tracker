@@ -8,10 +8,20 @@ const EMPTY: PriceResult = { price: 0, priceUSD: 0 };
 
 /**
  * Paylaşılan depodaki satır bu yaştan eskiyse canlı çekime düşülür.
- * Zamanlanmış iş gecikirse/durursa kullanıcı bayat fiyat görmesin diye —
- * depo bir hızlandırma, tek doğruluk kaynağı değil.
+ * Depo bir hızlandırma, tek doğruluk kaynağı değil: iş durursa kullanıcı
+ * süresiz bayat fiyat görmemeli.
+ *
+ * Varsayılan 26 saat, YENİLEME SIKLIĞIYLA UYUMLU OLMAK ZORUNDA. Vercel Hobby
+ * planında cron günde yalnızca bir kez çalışıyor ve saat ±59 dk kayabiliyor,
+ * yani iki çalışma arası en kötü ihtimalle ~25 saat. Pencere bundan kısa
+ * olursa (ilk hâli 1 saatti) depo günün büyük kısmında bayat sayılır ve hiç
+ * kullanılmaz — mimarinin tamamı boşa gider.
+ *
+ * Bu portföy için uzun pencere doğru: 82 sembolün 54'ü TEFAS fonu (NAV günde
+ * bir açıklanıyor), BIST tarafı da gün sonu. Gün içi tazelik zaten yok.
+ * Cron sıklaştırılırsa (Pro plan) bu değer de düşürülmeli.
  */
-const QUOTE_MAX_AGE_MS = 60 * 60 * 1000;
+const QUOTE_MAX_AGE_MS = Number(process.env.QUOTE_MAX_AGE_HOURS ?? 26) * 60 * 60 * 1000;
 
 /**
  * Önce PAYLAŞILAN depo, bulunamayan/bayat olanlar için canlı çekim.

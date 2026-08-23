@@ -14,8 +14,24 @@ import { fetchCurrentPrice } from "../../../../lib/priceFetch";
  * girdisi yok). Elle çağrılabilir. Twelve Data'nın paylaşılan önbelleğe izin
  * verip vermediği teyit edilmeden otomatiğe alınmamalı.
  *
- * Kaynak bugün Yahoo — sağlayıcı değişimi tek yerden, price/fetchers.ts'ten.
+ * Kaynak bugün Yahoo — sağlayıcı değişimi tek yerden, lib/priceFetch.ts'ten.
+ *
+ * ZAMANLAMA (vercel.json): günde bir, 22:00 UTC = 01:00 İstanbul. Cron
+ * ifadeleri Vercel'de HER ZAMAN UTC. Bu saat kasıtlı: BIST 18:10 İstanbul'da
+ * (15:10 UTC), ABD borsaları ~21:00 UTC'de kapanıyor, TEFAS fon fiyatlarını
+ * akşam yayımlıyor — 22:00 UTC hepsinin ardında kalıyor.
+ *
+ * Hobby planda cron GÜNDE YALNIZCA BİR KEZ çalışabilir ve Vercel saati ±59 dk
+ * kaydırabilir (yükü dağıtmak için). Bu portföy için sorun değil: 82 sembolün
+ * 54'ü TEFAS fonu (NAV günde bir), BIST tarafı da gün sonu. Günlük tazelik
+ * verinin kendi çözünürlüğüyle zaten örtüşüyor. Pro planda dakikalık sıklık
+ * serbest; o zaman ifadeyi sıklaştırıp QUOTE_MAX_AGE_HOURS'u düşürmek yeterli.
  */
+
+// Ölçüm: 82 sembol 5,5 sn (Yahoo, 20'lik gruplar). Vercel Hobby'de fonksiyon
+// varsayılanı 10 sn — sembol sayısı büyürse sınıra dayanmasın diye açıkça
+// yükseltiliyor (Hobby'de izin verilen tavan 60).
+export const maxDuration = 60;
 
 // Sağlayıcı hız sınırını aşmamak için aynı anda kaç sembol çekileceği.
 // Twelve Data Venture giriş katmanı dakikada 610 kredi veriyor ve kredi SEMBOL

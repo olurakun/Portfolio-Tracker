@@ -40,3 +40,28 @@ describe('isFresh', () => {
     expect(isFresh('2026-08-23T12:05:00Z', hour, now)).toBe(true);
   });
 });
+
+// Tazelik penceresi ile cron sıklığı UYUMLU OLMAK ZORUNDA. İlk hâlde pencere
+// 1 saatti ama Hobby planda cron günde bir çalışıyor — depo günün 23 saatinde
+// bayat sayılıp hiç kullanılmayacaktı, yani mimari boşa gidecekti.
+describe('tazelik penceresi cron sıklığıyla uyumlu mu', () => {
+  const H = 60 * 60 * 1000;
+  const now = new Date('2026-08-24T12:00:00Z');
+
+  it('günlük cron + 26 saatlik pencere: bir önceki çalışma hâlâ taze', () => {
+    // Dün 22:00'de yazıldı, şimdi 12:00 — arada 14 saat var.
+    expect(isFresh('2026-08-23T22:00:00Z', 26 * H, now)).toBe(true);
+  });
+
+  it('±59 dk sapmayla en kötü aralık (25 saat) hâlâ pencere içinde', () => {
+    expect(isFresh('2026-08-23T11:00:00Z', 26 * H, now)).toBe(true);
+  });
+
+  it('iş tamamen durursa (2 gün) bayat sayılır, canlıya düşülür', () => {
+    expect(isFresh('2026-08-22T10:00:00Z', 26 * H, now)).toBe(false);
+  });
+
+  it('1 saatlik pencere günlük cron ile UYUMSUZ olurdu', () => {
+    expect(isFresh('2026-08-23T22:00:00Z', 1 * H, now)).toBe(false);
+  });
+});
