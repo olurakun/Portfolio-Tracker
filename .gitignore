@@ -43,3 +43,8 @@ next-env.d.ts
 
 # Yerel Claude Code ayarları
 .claude/
+
+# Üretilmiş Edge Function kopyaları — kaynak her zaman lib/*.ts, bkz.
+# scripts/build-edge-function.mjs. Deploy öncesi `npm run build:edge`.
+supabase/functions/refresh-prices/_generated/
+supabase/.temp/
