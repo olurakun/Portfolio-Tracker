@@ -55,8 +55,17 @@ function apiKey(): string | null {
   return key ? key : null;
 }
 
-/** Anahtar tanımlı mı — yoksa yedek kaynak tamamen devre dışı. */
+/**
+ * Twelve Data kullanılsın mı.
+ *
+ * ANAHTARIN VARLIĞI TEK BAŞINA YETMEZ — ayrıca `TWELVE_DATA_ENABLED=true`
+ * gerekiyor. Sebebi somut: ücretsiz Basic anahtarı denemeler için .env.local'de
+ * duruyordu ve yalnızca anahtara bakan bir kontrol, kimse istemeden ücretsiz
+ * kotayı harcamaya başladı (bir kez yaşandı, 7 kredi). Ücretli Venture planına
+ * geçilene kadar kapalı kalmalı; açmak bilinçli bir hareket olmalı.
+ */
 export function twelveDataConfigured(): boolean {
+  if (process.env.TWELVE_DATA_ENABLED?.trim().toLowerCase() !== 'true') return false;
   return apiKey() !== null;
 }
 

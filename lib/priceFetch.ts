@@ -9,6 +9,7 @@
 import { fxRateUrl, readRate } from "./fx";
 import { cached } from "./ttlCache";
 import { tefasLatestPrice, tefasPriceOn } from "./tefas";
+import { twelveDataQuote, twelveDataHistoricalQuote, twelveDataConfigured } from "./twelvedata";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -116,6 +117,42 @@ async function resolveStockTicker(symbol: string): Promise<string | null> {
   });
 }
 
+/**
+ * SAĞLAYICI SEÇİMİ — hisse fiyatı için tek karar noktası.
+ *
+ * `TWELVE_DATA_API_KEY` tanımlıysa Twelve Data birincil, Yahoo yedek olur;
+ * tanımlı değilse yalnızca Yahoo kullanılır ve davranış değişmez. Böylece
+ * anahtar girilmesi tek başına geçişi başlatıyor, kod değişikliği gerekmiyor.
+ *
+ * Neden Twelve Data birincil: Yahoo'nun resmî API'si ve ticari kullanım
+ * lisansı yok. Venture planı ($149, "External display data access") bu ürünün
+ * ihtiyacını açıkça karşılıyor — son kullanıcıya gösterim serbest, yasak olan
+ * yalnızca ham veri akışını/API'yi başkasına dağıtmak.
+ *
+ * Yahoo yedekte kalıyor çünkü Twelve Data BIST'i kapsıyor ama kota sınırlı;
+ * kota dolarsa ya da sembol bulunamazsa fiyat hiç gelmemesindense Yahoo'dan
+ * gelmesi yeğdir.
+ */
+async function stockQuote(symbol: string): Promise<{ price: number; currency: string } | null> {
+  if (twelveDataConfigured()) {
+    const td = await twelveDataQuote(symbol, 'stock');
+    if (td !== null) return td;
+  }
+  const ticker = await resolveStockTicker(symbol);
+  return ticker ? fetchYahooQuote(ticker) : null;
+}
+
+async function stockHistoricalQuote(
+  symbol: string, date: string,
+): Promise<{ price: number; currency: string } | null> {
+  if (twelveDataConfigured()) {
+    const td = await twelveDataHistoricalQuote(symbol, 'stock', date);
+    if (td !== null) return td;
+  }
+  const ticker = await resolveStockTicker(symbol);
+  return ticker ? fetchYahooHistoricalQuote(ticker, date) : null;
+}
+
 // Güncel ve geçmiş USD/TRY kuru AYNI kaynaktan (Frankfurter) geliyor;
 // gerekçesi ve sınırları lib/fx.ts'te.
 async function fetchUsdTryRate(date: string | null): Promise<number | null> {
@@ -209,8 +246,9 @@ export async function getCurrentPrice(symbol: string, type: string | null): Prom
   // ilk deneme başarısız olursa ".IS" ekleyerek bir kez daha deneriz.
   // Hangi sonekin çalıştığı bir kez öğrenilip hatırlanır; aksi hâlde her BIST
   // sembolü için önce soneksiz (başarısız) sonra ".IS" ile iki çağrı gidiyordu.
-  const ticker = await resolveStockTicker(symbol);
-  const quote = ticker ? await fetchYahooQuote(ticker) : null;
+  // TWELVE_DATA_API_KEY tanımlıysa Twelve Data birincil, Yahoo yedek.
+  // Anahtar yoksa davranış eskisiyle birebir aynı (yalnızca Yahoo).
+  const quote = await stockQuote(symbol);
   if (quote === null) return { price: 0, priceUSD: 0 };
   const { tryAmount, usdAmount } = await convertToTryAndUsd(quote.price, quote.currency, usdTryRate, null);
   return { price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 };
@@ -252,8 +290,7 @@ export async function getHistoricalPrice(symbol: string, type: string | null, da
   }
 
   // 5. HİSSE SENETLERİ
-  const ticker = await resolveStockTicker(symbol);
-  const quote = ticker ? await fetchYahooHistoricalQuote(ticker, date) : null;
+  const quote = await stockHistoricalQuote(symbol, date);
   if (quote === null) return { price: 0, priceUSD: 0 };
   const { tryAmount, usdAmount } = await convertToTryAndUsd(quote.price, quote.currency, usdTryRate, date);
   return { price: tryAmount ?? 0, priceUSD: usdAmount ?? 0 };
