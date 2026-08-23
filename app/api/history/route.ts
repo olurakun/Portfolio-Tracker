@@ -3,6 +3,7 @@ import { fxSeriesUrl } from "../../../lib/fx";
 import { readCache, writeCache, purgeCache, hasRestatement } from "../../../lib/priceCache";
 import { tefasSeries as tefasFetch, periodForRange } from "../../../lib/tefas";
 import { coinGeckoRangeSeries } from "../../../lib/coingecko";
+import { cached } from "../../../lib/ttlCache";
 
 const DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
@@ -20,6 +21,15 @@ const METAL_SPECS: Record<string, { ticker: string; perGram: boolean }> = {
 const CURRENCY_ALIASES: Record<string, string> = {
   TL: 'TRY', TRL: 'TRY', '₺': 'TRY', '$': 'USD', '€': 'EUR', '£': 'GBP',
 };
+
+/**
+ * Aynı seri için kaynağa en fazla bu sıklıkta gidilir (süreç içi).
+ *
+ * Veri günlük çözünürlükte (kapanış/NAV), yani gün içinde tekrar tekrar
+ * çekmenin bilgi değeri yok. 6 saat = sembol başına günde en çok ~4 istek.
+ * Sunucu yeniden başlayınca sıfırlanır; kalıcı katman price_history.
+ */
+const SOURCE_TTL_MS = 6 * 60 * 60 * 1000;
 
 // Bir varlığın tarih aralığındaki tüm günlük fiyat serisini TEK çağrıda döndürür.
 // Grafik için tarih başına ayrı istek atmak (N varlık × M gün) sürdürülemezdi;
@@ -115,23 +125,39 @@ async function seriesFor(symbolRaw: string, type: string | null, start: string, 
     // Önbellek okuma ve kaynak çekme PARALEL yapılır. Sıra ile yapıldığında
     // ikisinin gecikmesi toplanıyordu ve önbellek isteği hızlandırmak yerine
     // yavaşlatıyordu (0,47 sn → 0,85 sn). Paralelde maliyet yavaş olanın kadar.
-    const [cached, fresh] = await Promise.all([
+    //
+    // Kaynak çağrısı ayrıca SÜREÇ İÇİ TTL ile sarılıyor. price_history tablosu
+    // son SETTLING_DAYS günü hiç yazmadığı için (fiyatlar oturmamış olabilir)
+    // kaynağa gitmek tamamen atlanamaz — atlanırsa grafik 5 gün geriden biter.
+    // Bunun yerine SONUÇ bellekte tutuluyor: TTL içindeki tekrar isteklerde
+    // aynı taze seri ağdan değil bellekten dönüyor, seri yine güncel kalıyor.
+    // Asıl kazanç TEFAS'ta: 82 sembolün 54'ü fon ve TEFAS'ın resmî API'si yok,
+    // her sayfa açılışında 54 istek atmak engellenme riski taşıyor. cached()
+    // ayrıca eşzamanlı aynı istekleri tek çağrıya bindiriyor.
+    const [cachedRows, fresh] = await Promise.all([
       readCache(symbol, assetType, start, end),
-      fetchFromSource(),
+      cached(
+        `history:${symbol}:${assetType}:${start}:${end}`,
+        SOURCE_TTL_MS,
+        fetchFromSource,
+        // Başarısızlığı önbellekleme: geçici bir kesinti TTL boyunca
+        // dondurulmamalı (bkz. lib/ttlCache.ts'teki kur hatası notu).
+        result => result !== null && Object.keys(result.prices).length > 0,
+      ),
     ]);
 
     if (!fresh) {
       // Kaynak cevap vermedi ama elimizde önbellek varsa onu döndürmek,
       // boş grafik göstermekten iyidir.
-      return { currency: cached.currency ?? 'TRY', prices: cached.prices, cached: true };
+      return { currency: cachedRows.currency ?? 'TRY', prices: cachedRows.prices, cached: true };
     }
 
     // Bölünme / bedelsiz / temettü düzeltmesi kontrolü: kaynak geçmişi geriye
     // dönük değiştirdiyse önbellek artık yanlış, atılır.
-    const restated = hasRestatement(cached.prices, fresh.prices);
+    const restated = hasRestatement(cachedRows.prices, fresh.prices);
     if (restated) await purgeCache(symbol, assetType);
 
-    const merged: Record<string, number> = restated ? {} : { ...cached.prices };
+    const merged: Record<string, number> = restated ? {} : { ...cachedRows.prices };
     for (const [d, p] of Object.entries(fresh.prices)) merged[d] = p;
 
     // Yazma isteği yanıtı bekletmesin.
