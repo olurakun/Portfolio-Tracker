@@ -43,6 +43,16 @@ function classify(q: any): { symbol: string; type: string } | null {
     return { symbol: rawSymbol, type: "fund" };
   }
 
+  if (quoteType === "CRYPTOCURRENCY") {
+    // Yahoo her kripto için birden çok kur çifti döndürür (BTC-USD, BTC-EUR,
+    // BTC-GBP...); hepsi aynı coin'e dedupe olsun diye yalnızca -USD
+    // varyantını kabul edip taban sembole (BTC) indirgiyoruz. Fiyat API'si
+    // bu tabana kendi -USD'yi ekleyerek geri çözüyor (aşağıdaki not, price
+    // route'taki resolveCryptoTicker ile aynı mantık).
+    if (!rawSymbol.endsWith("-USD")) return null;
+    return { symbol: rawSymbol.slice(0, -4), type: "crypto" };
+  }
+
   // EQUITY, INDEX ve diğer her şey: hisse.
   // ÖNEMLİ: borsa soneki (THYAO.IS gibi) burada KORUNUR — fiyat API'sinin
   // doğru borsadan veri çekebilmesi buna bağlı. Daha önce bu sonek siliniyor,

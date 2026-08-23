@@ -124,6 +124,22 @@ describe('AssetPicker', () => {
     expect(onValue).toHaveBeenCalledWith(expect.objectContaining({ type: 'metal' }));
   });
 
+  it('kripto varlık tipi olarak seçilebilir', async () => {
+    const onValue = vi.fn();
+    render(<Harness onValue={onValue} />);
+    await userEvent.selectOptions(screen.getByLabelText('Varlık tipi'), 'crypto');
+    expect(onValue).toHaveBeenCalledWith(expect.objectContaining({ type: 'crypto' }));
+  });
+
+  it('arama sonucunda kripto rozeti "Kripto" olarak gösterilir', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      json: async () => ({ results: [{ symbol: 'BTC', name: 'Bitcoin USD', type: 'crypto' }] }),
+    })) as unknown as typeof fetch);
+    render(<Harness />);
+    await userEvent.type(searchInput(), 'bitcoin');
+    expect(await screen.findByText('Kripto', {}, { timeout: 2000 })).toBeInTheDocument();
+  });
+
   it('arama başarısız olursa çökmez', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ağ hatası'); }) as unknown as typeof fetch);
     render(<Harness />);

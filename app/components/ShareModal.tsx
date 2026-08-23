@@ -16,6 +16,7 @@ const TYPE_OPTIONS: { value: AssetType; label: string }[] = [
   { value: 'fund', label: 'Fon' },
   { value: 'currency', label: 'Döviz' },
   { value: 'metal', label: 'Değerli Maden' },
+  { value: 'crypto', label: 'Kripto' },
 ];
 
 const COLUMN_OPTIONS: { key: keyof ShareColumns; label: string }[] = [

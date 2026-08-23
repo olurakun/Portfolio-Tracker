@@ -10,7 +10,7 @@ afterEach(cleanup);
 const defaults = {
   open: true,
   onClose: () => {},
-  assetCounts: { stock: 3, fund: 1, currency: 1, metal: 0 },
+  assetCounts: { stock: 3, fund: 1, currency: 1, metal: 0, crypto: 0 },
   busy: false,
   error: "",
   shares: [] as ShareRecord[],

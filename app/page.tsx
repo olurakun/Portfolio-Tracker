@@ -697,7 +697,7 @@ function Home({ session }: { session: Session }) {
   const totalPL = totalUnrealizedPL + totalRealizedPL;
   const totalPLUSD = portfolio.reduce((acc, i) => acc + i.unrealizedPLUSD + i.realizedPLUSD, 0);
 
-  const assetTypeCounts = (['stock', 'fund', 'currency', 'metal'] as AssetType[]).reduce((acc, t) => {
+  const assetTypeCounts = (['stock', 'fund', 'currency', 'metal', 'crypto'] as AssetType[]).reduce((acc, t) => {
     acc[t] = openPositions.filter(p => p.type === t).length;
     return acc;
   }, {} as Record<AssetType, number>);

@@ -253,7 +253,7 @@ export default function DevPreviewClient() {
           <ShareModal
             open={shareModalOpen}
             onClose={() => setShareModalOpen(false)}
-            assetCounts={{ stock: 3, fund: 1, currency: 1, metal: 1 }}
+            assetCounts={{ stock: 3, fund: 1, currency: 1, metal: 1, crypto: 1 }}
             busy={false}
             error=""
             shares={demoShares}

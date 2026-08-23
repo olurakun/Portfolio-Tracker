@@ -3,10 +3,10 @@
 import type { ShareRow, ShareSnapshot } from "../../lib/shares";
 
 const TYPE_LABEL: Record<string, string> = {
-  stock: 'Hisse', fund: 'Fon', currency: 'Döviz', metal: 'Maden',
+  stock: 'Hisse', fund: 'Fon', currency: 'Döviz', metal: 'Maden', crypto: 'Kripto',
 };
 const TYPE_BADGE_CLASS: Record<string, string> = {
-  stock: 'text-sky-300/90', fund: 'text-indigo-300/90', currency: 'text-teal-300/90', metal: 'text-amber-300/90',
+  stock: 'text-sky-300/90', fund: 'text-indigo-300/90', currency: 'text-teal-300/90', metal: 'text-amber-300/90', crypto: 'text-orange-300/90',
 };
 
 const tl = (n: number) => `${n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺`;

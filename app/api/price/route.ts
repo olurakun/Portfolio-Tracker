@@ -179,14 +179,24 @@ async function getCurrentPrice(symbol: string, type: string | null): Promise<Pri
     return { price: priceTRY ?? 0, priceUSD };
   }
 
-  // 3. FONLAR - TEFAS Doğrudan Erişim (şu an sadece TR fonları destekleniyor, her zaman TRY)
+  // 3. KRİPTO — Yahoo "BTC-USD" gibi USD paritesiyle fiyatlıyor, TL'ye kur
+  // üzerinden çeviriyoruz. Kalıcı kaynak değil: Yahoo'nun ticari lisansı yok,
+  // bkz. lib/coingecko.ts'teki not — anahtar temin edilince oraya geçilecek.
+  if (type === "crypto") {
+    const quote = await fetchYahooPrice(`${symbol}-USD`);
+    if (quote === null) return { price: 0, priceUSD: 0 };
+    const priceTRY = usdTryRate !== null ? quote * usdTryRate : null;
+    return { price: priceTRY ?? 0, priceUSD: quote };
+  }
+
+  // 4. FONLAR - TEFAS Doğrudan Erişim (şu an sadece TR fonları destekleniyor, her zaman TRY)
   if (type === "fund") {
     const tryPrice = await tefasLatestPrice(symbol);
     const usdPrice = tryPrice !== null && usdTryRate ? tryPrice / usdTryRate : null;
     return { price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 };
   }
 
-  // 4. HİSSE SENETLERİ (yerli + yabancı)
+  // 5. HİSSE SENETLERİ (yerli + yabancı)
   // Arama sonuçlarından gelen semboller borsa sonekini zaten içerir (THYAO.IS, AAPL, vb.)
   // Manuel eklenmiş ve soneksiz bir BIST sembolü olabileceği ihtimaline karşı
   // ilk deneme başarısız olursa ".IS" ekleyerek bir kez daha deneriz.
@@ -219,14 +229,22 @@ async function getHistoricalPrice(symbol: string, type: string | null, date: str
     return { price: priceTRY ?? 0, priceUSD };
   }
 
-  // 3. FONLAR
+  // 3. KRİPTO
+  if (type === "crypto") {
+    const quote = await fetchYahooHistoricalQuote(`${symbol}-USD`, date);
+    if (quote === null) return { price: 0, priceUSD: 0 };
+    const priceTRY = usdTryRate !== null ? quote.price * usdTryRate : null;
+    return { price: priceTRY ?? 0, priceUSD: quote.price };
+  }
+
+  // 4. FONLAR
   if (type === "fund") {
     const tryPrice = await tefasPriceOn(symbol, date);
     const usdPrice = tryPrice !== null && usdTryRate ? tryPrice / usdTryRate : null;
     return { price: tryPrice ?? 0, priceUSD: usdPrice ?? 0 };
   }
 
-  // 4. HİSSE SENETLERİ
+  // 5. HİSSE SENETLERİ
   const ticker = await resolveStockTicker(symbol);
   const quote = ticker ? await fetchYahooHistoricalQuote(ticker, date) : null;
   if (quote === null) return { price: 0, priceUSD: 0 };

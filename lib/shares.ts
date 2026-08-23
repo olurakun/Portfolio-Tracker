@@ -13,7 +13,7 @@
 // araçlarından doğrudan okunabilir. Bu yüzden seçilmeyen alanlar objeye hiç
 // yazılmıyor, undefined bile bırakılmıyor.
 
-export type AssetType = 'stock' | 'fund' | 'currency' | 'metal';
+export type AssetType = 'stock' | 'fund' | 'currency' | 'metal' | 'crypto';
 
 export type ShareColumns = {
   quantity: boolean;

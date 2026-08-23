@@ -170,6 +170,7 @@ export default function ImportPreview({
                         <option value="fund">Fon</option>
                         <option value="currency">Döviz</option>
                         <option value="metal">Değerli Maden</option>
+                        <option value="crypto">Kripto</option>
                       </select>
                     )}
                   </div>

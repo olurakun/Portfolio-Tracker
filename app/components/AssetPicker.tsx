@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 export type AssetChoice = { symbol: string; name: string; type: string };
 
 const TYPE_LABEL: Record<string, string> = {
-  stock: 'Hisse', fund: 'Fon', currency: 'Döviz', metal: 'Maden',
+  stock: 'Hisse', fund: 'Fon', currency: 'Döviz', metal: 'Maden', crypto: 'Kripto',
 };
 
 /**
@@ -131,6 +131,7 @@ export default function AssetPicker({
         <option value="fund">Fon</option>
         <option value="currency">Döviz</option>
         <option value="metal">Değerli Maden</option>
+        <option value="crypto">Kripto</option>
       </select>
     </div>
   );

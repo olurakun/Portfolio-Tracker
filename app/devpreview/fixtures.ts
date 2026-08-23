@@ -17,6 +17,8 @@ export const positions: PortfolioRow[] = [
     value: 2186275.2, valueUSD: 64025.6, unrealizedPL: 318902.4, realizedPL: 12055, unrealizedPLUSD: 9340.3, realizedPLUSD: 353 },
   { id: '5', symbol: 'USD', type: 'currency', totalQty: 5000, currentPrice: 34.14, currentPriceUSD: 1,
     value: 170700, valueUSD: 5000, unrealizedPL: 8420, realizedPL: 0, unrealizedPLUSD: 0, realizedPLUSD: 0 },
+  { id: '7', symbol: 'BTC', type: 'crypto', totalQty: 0.15, currentPrice: 3664647.01, currentPriceUSD: 76241.98,
+    value: 549697.05, valueUSD: 11436.3, unrealizedPL: 61200.4, realizedPL: 0, unrealizedPLUSD: 1273.5, realizedPLUSD: 0 },
 ];
 
 export const closedPositions: PortfolioRow[] = [

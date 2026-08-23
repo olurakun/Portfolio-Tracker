@@ -25,6 +25,7 @@ const TYPE_BADGE: Record<string, { label: string; className: string }> = {
   fund:     { label: 'Fon',   className: 'text-indigo-300/90' },
   currency: { label: 'Döviz', className: 'text-teal-300/90' },
   metal:    { label: 'Maden', className: 'text-amber-300/90' },
+  crypto:   { label: 'Kripto', className: 'text-orange-300/90' },
 };
 
 const tl = (n: number, digits = 2) =>
