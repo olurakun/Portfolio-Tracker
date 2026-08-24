@@ -28,15 +28,31 @@ select 1 from information_schema.tables where table_schema = 'cron' and table_na
 select vault.create_secret('BURAYA_PROJE_URLINI_YAZ', 'refresh_prices_project_url');
 select vault.create_secret('BURAYA_SERVICE_ROLE_ANAHTARINI_YAZ', 'refresh_prices_service_key');
 
--- 4) Zamanlanmış iş. Saat UTC: 22:00 UTC = 01:00 İstanbul — BIST (15:10 UTC
---    kapanış), ABD borsaları (~21:00 UTC) ve TEFAS'ın akşam NAV yayınının
---    hepsinin ardında. unschedule+schedule tekrar çalıştırılabilir kılıyor.
+-- 4) Zamanlanmış iş. Saat UTC: 08:00 UTC = 11:00 İstanbul.
+--
+--    ÖNCEDEN 22:00 UTC (01:00 İstanbul) İDİ, DEĞİŞTİRİLDİ (2026-08-24).
+--    İki sebep:
+--    (a) TEFAS gün sonu NAV'ını gece geç yayımlıyor; 01:00'de bazı fonların
+--        fiyatı henüz düşmemiş oluyordu (kullanıcı gözlemi).
+--    (b) ÖLÇÜLDÜ: 23 Ağustos 22:00 çalışmasında 83 kaydın YALNIZCA 2'si
+--        yazıldı (sadece kripto). Hisse/fon/maden/döviz toptan başarısız.
+--        Kripto tek başına başarılı çünkü CoinGecko TL fiyatını doğrudan
+--        veriyor; diğer kaynaklar (TEFAS, Yahoo, Frankfurter) o saatte
+--        cevap vermemiş. Aynı fonksiyon gündüz elle çalıştırıldığında
+--        81/82 başarılı olmuştu.
+--
+--    Gündüze almak tazelikten ÖDÜN VERDİRMİYOR: BIST 15:10 UTC'de, ABD
+--    ~21:00 UTC'de kapanıyor; 08:00 UTC'de çalışan iş her ikisinin de BİR
+--    ÖNCEKİ kapanışını alıyor — 22:00'de çalışan iş de aynısını alıyordu,
+--    çünkü kullanıcı zaten ertesi gün bakıyor. Kazanç TEFAS tarafında net.
+--
+--    unschedule+schedule tekrar çalıştırılabilir kılıyor.
 select cron.unschedule('refresh-prices-daily')
 where exists (select 1 from cron.job where jobname = 'refresh-prices-daily');
 
 select cron.schedule(
   'refresh-prices-daily',
-  '0 22 * * *',
+  '0 8 * * *',
   $$
   select net.http_post(
     url := (select decrypted_secret from vault.decrypted_secrets where name = 'refresh_prices_project_url')

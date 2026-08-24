@@ -16,10 +16,12 @@ import { fetchCurrentPrice } from "../../../../lib/priceFetch";
  *
  * Kaynak bugün Yahoo — sağlayıcı değişimi tek yerden, lib/priceFetch.ts'ten.
  *
- * ZAMANLAMA (vercel.json): günde bir, 22:00 UTC = 01:00 İstanbul. Cron
+ * ZAMANLAMA: günde bir, 08:00 UTC = 11:00 İstanbul (bkz.
+ * supabase/refresh_prices_cron.sql — gerekçe orada). Cron
  * ifadeleri Vercel'de HER ZAMAN UTC. Bu saat kasıtlı: BIST 18:10 İstanbul'da
  * (15:10 UTC), ABD borsaları ~21:00 UTC'de kapanıyor, TEFAS fon fiyatlarını
- * akşam yayımlıyor — 22:00 UTC hepsinin ardında kalıyor.
+ * akşam GEÇ yayımlıyor; 01:00 İstanbul'da bazı fonların fiyatı henüz
+ * düşmemiş oluyordu, bu yüzden iş gündüze (11:00 İstanbul) alındı.
  *
  * Hobby planda cron GÜNDE YALNIZCA BİR KEZ çalışabilir ve Vercel saati ±59 dk
  * kaydırabilir (yükü dağıtmak için). Bu portföy için sorun değil: 82 sembolün
