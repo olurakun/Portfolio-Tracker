@@ -19,6 +19,33 @@ import { getCurrentPrice } from './_generated/priceFetch.ts';
 // rahat bırakır (app/api/cron/refresh-prices/route.ts ile aynı değer).
 const BATCH_SIZE = 20;
 
+/**
+ * Çalışma sonucunu cron_runs tablosuna yazar.
+ *
+ * Kayıt YAZILAMAZSA iş başarısız SAYILMAZ: günlük tutmak fiyat yenilemenin
+ * kendisinden daha az önemli, log yüzünden fiyatların güncellenmemesi
+ * saçma olurdu. Bu yüzden hata yutuluyor (ama konsola düşüyor).
+ */
+async function logRun(
+  db: ReturnType<typeof createClient>,
+  row: { durationMs: number; symbols: number; written: number; failed: string[]; error?: string | null },
+) {
+  try {
+    const { error } = await db.from('cron_runs').insert({
+      job: 'refresh-prices',
+      duration_ms: row.durationMs,
+      symbols: row.symbols,
+      written: row.written,
+      // Uzun listeler satırı şişirmesin; sayı zaten symbols-written'dan çıkıyor.
+      failed: row.failed.slice(0, 50),
+      error: row.error ?? null,
+    });
+    if (error) console.error('cron_runs yazılamadı:', error.message);
+  } catch (e) {
+    console.error('cron_runs yazılamadı:', e);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   // Bu fonksiyona giriş, Supabase'in kendi Edge Function ağ geçidi
   // tarafından korunuyor: gelen istekte geçerli bir `apikey` yoksa buraya
@@ -30,6 +57,7 @@ Deno.serve(async (req: Request) => {
     return new Response('method not allowed', { status: 405 });
   }
 
+  const startedAt = Date.now();
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!supabaseUrl || !serviceKey) {
@@ -44,7 +72,9 @@ Deno.serve(async (req: Request) => {
     .from('tracked_symbols')
     .select('symbol, type');
   if (readError) {
-    return Response.json({ error: `tracked_symbols okunamadı: ${readError.message}` }, { status: 500 });
+    const message = `tracked_symbols okunamadı: ${readError.message}`;
+    await logRun(db, { durationMs: Date.now() - startedAt, symbols: 0, written: 0, failed: [], error: message });
+    return Response.json({ error: message }, { status: 500 });
   }
 
   const symbols = (symbolRows ?? [])
@@ -52,6 +82,7 @@ Deno.serve(async (req: Request) => {
     .map(r => ({ symbol: (r.symbol as string).toUpperCase(), assetType: (r.type as string) || 'stock' }));
 
   if (symbols.length === 0) {
+    await logRun(db, { durationMs: Date.now() - startedAt, symbols: 0, written: 0, failed: [], error: 'tracked_symbols boş' });
     return Response.json({ symbols: 0, written: 0, note: 'tracked_symbols boş' });
   }
 
@@ -79,5 +110,14 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  await logRun(db, {
+    durationMs: Date.now() - startedAt,
+    symbols: symbols.length,
+    written,
+    failed,
+    // Hiçbir şey yazılamadıysa bu bir çalışma değil, sessiz bir arıza —
+    // error alanına da geçsin ki tek bakışta görülsün.
+    error: written === 0 ? 'hiçbir sembol yazılamadı' : null,
+  });
   return Response.json({ symbols: symbols.length, written, failed });
 });

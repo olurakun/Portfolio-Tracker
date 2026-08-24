@@ -24,7 +24,7 @@ const OUT_DIR = join(ROOT, 'supabase/functions/refresh-prices/_generated');
 
 // Sıra önemli değil (her dosya kendi görece import'unu çözüyor), ama okunurluk
 // için bağımlılık sırasına yakın tutuldu.
-const SOURCE_FILES = ['limit.ts', 'ttlCache.ts', 'fx.ts', 'tefas.ts', 'twelvedata.ts', 'priceFetch.ts'];
+const SOURCE_FILES = ['limit.ts', 'ttlCache.ts', 'fx.ts', 'tefas.ts', 'twelvedata.ts', 'coingecko.ts', 'priceFetch.ts'];
 
 function transform(src, filename) {
   let out = src;
@@ -62,10 +62,33 @@ function transform(src, filename) {
 
 mkdirSync(OUT_DIR, { recursive: true });
 
+const generated = new Map();
 for (const filename of SOURCE_FILES) {
   const src = readFileSync(join(ROOT, 'lib', filename), 'utf8');
   const out = transform(src, filename);
+  generated.set(filename, out);
   writeFileSync(join(OUT_DIR, filename), out, 'utf8');
   console.log(`  lib/${filename} -> supabase/functions/refresh-prices/_generated/${filename}`);
 }
+
+// DOĞRULAMA — sessiz bozuk çıktıya karşı.
+// SOURCE_FILES elle tutulan bir liste. Kaynak dosyalardan birine yeni bir
+// yerel import eklenip bu listeye eklenmezse, betik hatasız çalışır ama
+// üretilen fonksiyon var olmayan bir modülü import ettiği için ÇALIŞMA
+// ANINDA patlar. Bu bir kez yaşandı: priceFetch.ts'e coingecko.ts eklendi,
+// liste güncellenmedi. Artık burada yakalanıyor.
+const missing = [];
+for (const [filename, content] of generated) {
+  for (const m of content.matchAll(/from\s+['"]\.\/([^'"]+)['"]/g)) {
+    const dep = m[1];
+    if (!generated.has(dep)) missing.push(`${filename} -> ./${dep}`);
+  }
+}
+if (missing.length > 0) {
+  console.error('\nHATA: üretilen dosyalar kopyalanmamış modüllere referans veriyor:');
+  for (const m of missing) console.error(`  ${m}`);
+  console.error('\nSOURCE_FILES listesine eksik dosyaları ekleyin.');
+  process.exit(1);
+}
+console.log(`  ${generated.size} dosya, import doğrulaması geçti.`);
 console.log(`\n${SOURCE_FILES.length} dosya üretildi.`);
